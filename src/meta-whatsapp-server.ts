@@ -94,6 +94,29 @@ async function startServer() {
   const app = express();
   app.use(express.json());
 
+// In-memory log buffer for remote live diagnostics
+const logBuffer: string[] = [];
+function addLog(msg: string) {
+  const line = `[${new Date().toISOString()}] ${msg}`;
+  logBuffer.push(line);
+  if (logBuffer.length > 300) logBuffer.shift();
+}
+const origLog = console.log;
+const origErr = console.error;
+const origWarn = console.warn;
+console.log = (...args: any[]) => {
+  addLog(args.map(a => typeof a === 'object' ? JSON.stringify(a) : String(a)).join(' '));
+  origLog(...args);
+};
+console.error = (...args: any[]) => {
+  addLog('ERROR: ' + args.map(a => typeof a === 'object' ? JSON.stringify(a) : String(a)).join(' '));
+  origErr(...args);
+};
+console.warn = (...args: any[]) => {
+  addLog('WARN: ' + args.map(a => typeof a === 'object' ? JSON.stringify(a) : String(a)).join(' '));
+  origWarn(...args);
+};
+
   // Health check
   app.get(["/", "/healthz"], (_req: Request, res: Response) => {
     res.json({
@@ -102,6 +125,11 @@ async function startServer() {
       metaConfigured: isMetaConfigured,
       activeSessions: sessions.size,
     });
+  });
+
+  // Live remote logs endpoint
+  app.get("/logs", (_req: Request, res: Response) => {
+    res.type("text/plain").send(logBuffer.join("\n") || "No logs captured yet.");
   });
 
   // Meta Webhook Verification (GET /webhook)
