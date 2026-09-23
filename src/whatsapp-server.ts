@@ -60,7 +60,7 @@ async function startServer() {
   app.use(express.json());
 
   // Health check
-  app.get("/", (_req: Request, res: Response) => {
+  app.get(["/", "/healthz"], (_req: Request, res: Response) => {
     res.json({
       status: "online",
       agent: "Swiggy AI Nutrition Bot",
