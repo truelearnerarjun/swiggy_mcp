@@ -128,15 +128,31 @@ npm start
 
 ---
 
-### Option B: Twilio WhatsApp Bot
+### Option B: Meta WhatsApp Cloud API (Official)
 ```bash
-npm run whatsapp
+npm run whatsapp:meta
 ```
-1. Expose your local port via ngrok:
+1. Create an app on [Meta for Developers](https://developers.facebook.com) with the **WhatsApp** product.
+2. In your `.env`:
+```env
+META_WHATSAPP_TOKEN=your_meta_access_token
+META_PHONE_NUMBER_ID=your_phone_number_id
+META_VERIFY_TOKEN=swiggy_agent_secret
+```
+3. Expose port 3000 via ngrok: `npx ngrok http 3000`
+4. In Meta WhatsApp Configuration, set:
+   - **Callback URL:** `https://<your-ngrok-subdomain>.ngrok-free.app/webhook`
+   - **Verify Token:** `swiggy_agent_secret`
+5. Message the bot from your WhatsApp number!
+
+---
+
+### Option C: Twilio WhatsApp Bot
 ```bash
-npx ngrok http 3000
+npm run whatsapp:twilio
 ```
-2. In your [Twilio Console](https://console.twilio.com) > **Messaging** > **WhatsApp Sandbox Settings**, set the webhook URL to:
+1. Expose your local port via ngrok: `npx ngrok http 3000`
+2. In your [Twilio Console](https://console.twilio.com) > **WhatsApp Sandbox Settings**, set the webhook URL to:
 ```
 https://<your-ngrok-subdomain>.ngrok-free.app/webhook
 ```

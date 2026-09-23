@@ -6,8 +6,9 @@
   "type": "module",
   "scripts": {
     "start": "tsx src/index.ts",
-    "whatsapp": "tsx src/whatsapp-server.ts",
-    "whatsapp:watch": "tsx --watch src/whatsapp-server.ts",
+    "whatsapp:meta": "tsx src/meta-whatsapp-server.ts",
+    "whatsapp:twilio": "tsx src/whatsapp-server.ts",
+    "whatsapp": "tsx src/meta-whatsapp-server.ts",
     "dev": "tsx --watch src/index.ts",
     "build": "tsc",
     "typecheck": "tsc --noEmit"
