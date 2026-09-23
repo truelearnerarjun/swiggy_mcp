@@ -229,6 +229,11 @@ async function exchangeCodeForToken(
  * 2. If not, run the full OAuth 2.1 + PKCE flow (browser + phone + OTP).
  */
 export async function getSwiggyAccessToken(): Promise<string> {
+  // 0. Use environment variable if provided (e.g. for cloud deployments on Render/Railway)
+  if (process.env.SWIGGY_ACCESS_TOKEN && process.env.SWIGGY_ACCESS_TOKEN.trim().length > 0) {
+    return process.env.SWIGGY_ACCESS_TOKEN.trim();
+  }
+
   // 1. Try stored token
   const stored = await loadStoredToken();
   if (stored) {
