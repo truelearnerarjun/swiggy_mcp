@@ -1,0 +1,19 @@
+# Environment variables (contains secrets)
+.env
+
+# OAuth token store (contains live access tokens)
+token-store.json
+
+# Node modules
+node_modules/
+
+# TypeScript build output
+dist/
+
+# OS artifacts
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/

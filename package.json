@@ -1,0 +1,31 @@
+{
+  "name": "swigg-mcp-agent",
+  "version": "1.0.0",
+  "description": "AI Nutrition Agent powered by OpenAI Agents SDK and Swiggy MCP",
+  "main": "dist/index.js",
+  "type": "module",
+  "scripts": {
+    "start": "tsx src/index.ts",
+    "whatsapp": "tsx src/whatsapp-server.ts",
+    "whatsapp:watch": "tsx --watch src/whatsapp-server.ts",
+    "dev": "tsx --watch src/index.ts",
+    "build": "tsc",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@google/genai": "^1.0.0",
+    "@modelcontextprotocol/sdk": "^1.15.1",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.7",
+    "express": "^4.21.2",
+    "open": "^10.1.0",
+    "twilio": "^6.1.1"
+  },
+  "devDependencies": {
+    "@types/cors": "^2.8.17",
+    "@types/express": "^5.0.3",
+    "@types/node": "^22.13.10",
+    "tsx": "^4.19.3",
+    "typescript": "^5.8.2"
+  }
+}
