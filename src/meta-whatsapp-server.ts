@@ -6,6 +6,7 @@
  */
 
 import "dotenv/config";
+import crypto from "crypto";
 import express, { Request, Response } from "express";
 import { initAgentContext, runAgentTurn, AgentContext } from "./agent-core.js";
 
@@ -48,7 +49,8 @@ async function sendWhatsAppMessage(to: string, bodyText: string) {
 
   for (const chunk of chunks) {
     const url = `https://graph.facebook.com/v22.0/${META_PHONE_NUMBER_ID}/messages`;
-    console.log(`Sending to Meta API for [${to}] (phoneId: ${META_PHONE_NUMBER_ID}, token len: ${META_WHATSAPP_TOKEN?.length}, token: ${META_WHATSAPP_TOKEN?.slice(0, 8)}...${META_WHATSAPP_TOKEN?.slice(-8)})`);
+    const tokenHash = crypto.createHash("sha256").update(META_WHATSAPP_TOKEN || "").digest("hex").slice(0, 12);
+    console.log(`Sending to Meta API for [${to}] (phoneId: ${META_PHONE_NUMBER_ID}, token len: ${META_WHATSAPP_TOKEN?.length}, tokenHash: ${tokenHash}...)`);
     try {
       const response = await fetch(url, {
         method: "POST",
