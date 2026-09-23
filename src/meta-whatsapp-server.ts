@@ -120,12 +120,33 @@ console.warn = (...args: any[]) => {
   origWarn(...args);
 };
 
+// Check Meta Token Validity
+async function checkMetaTokenStatus(): Promise<{ valid: boolean; message: string }> {
+  if (!isMetaConfigured) {
+    return { valid: false, message: "Meta credentials not configured" };
+  }
+  try {
+    const res = await fetch(`https://graph.facebook.com/v22.0/${META_PHONE_NUMBER_ID}?fields=id,verified_name`, {
+      headers: { Authorization: `Bearer ${META_WHATSAPP_TOKEN}` },
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      return { valid: false, message: data.error?.message || "Token invalid or expired" };
+    }
+    return { valid: true, message: `Verified (${data.verified_name || data.id})` };
+  } catch (err: any) {
+    return { valid: false, message: err?.message || "Network check failed" };
+  }
+}
+
   // Health check
-  app.get(["/", "/healthz"], (_req: Request, res: Response) => {
+  app.get(["/", "/healthz"], async (_req: Request, res: Response) => {
+    const tokenStatus = await checkMetaTokenStatus();
     res.json({
       status: "online",
       agent: "Swiggy AI Nutrition Bot (Meta Cloud API)",
       metaConfigured: isMetaConfigured,
+      metaToken: tokenStatus,
       activeSessions: sessions.size,
     });
   });
@@ -212,7 +233,7 @@ console.warn = (...args: any[]) => {
     }
   });
 
-  app.listen(PORT, () => {
+  app.listen(PORT, async () => {
     console.log(`🚀 Meta WhatsApp server running on http://localhost:${PORT}`);
     console.log(`👉 Webhook URL for Meta: https://<your-ngrok-url>.ngrok-free.app/webhook`);
     console.log(`👉 Verify Token for Meta: ${META_VERIFY_TOKEN}`);
@@ -221,7 +242,14 @@ console.warn = (...args: any[]) => {
       console.log("   The server is running in dev simulation mode (replies will print to console).");
       console.log("   Add your Meta credentials to .env to enable live WhatsApp delivery.\n");
     } else {
-      console.log("✓ Meta credentials detected. Live WhatsApp dispatching enabled.\n");
+      const tokenStatus = await checkMetaTokenStatus();
+      if (tokenStatus.valid) {
+        console.log(`✓ Meta credentials verified: ${tokenStatus.message}`);
+      } else {
+        console.warn(`⚠️ Meta Access Token warning: ${tokenStatus.message}`);
+        console.warn("👉 Please generate a fresh token at https://developers.facebook.com and update META_WHATSAPP_TOKEN.");
+      }
+      console.log("✓ Meta WhatsApp dispatching enabled.\n");
     }
   });
 }
