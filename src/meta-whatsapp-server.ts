@@ -10,9 +10,9 @@ import express, { Request, Response } from "express";
 import { initAgentContext, runAgentTurn, AgentContext } from "./agent-core.js";
 
 const PORT = parseInt(process.env.PORT ?? "3000", 10);
-const META_WHATSAPP_TOKEN = process.env.META_WHATSAPP_TOKEN;
-const META_PHONE_NUMBER_ID = process.env.META_PHONE_NUMBER_ID;
-const META_VERIFY_TOKEN = process.env.META_VERIFY_TOKEN ?? "swiggy_agent_secret";
+const META_WHATSAPP_TOKEN = process.env.META_WHATSAPP_TOKEN?.trim().replace(/^["']|["']$/g, "");
+const META_PHONE_NUMBER_ID = process.env.META_PHONE_NUMBER_ID?.trim().replace(/^["']|["']$/g, "");
+const META_VERIFY_TOKEN = (process.env.META_VERIFY_TOKEN ?? "swiggy_agent_secret").trim().replace(/^["']|["']$/g, "");
 
 const isMetaConfigured = Boolean(META_WHATSAPP_TOKEN && META_PHONE_NUMBER_ID);
 
@@ -48,6 +48,7 @@ async function sendWhatsAppMessage(to: string, bodyText: string) {
 
   for (const chunk of chunks) {
     const url = `https://graph.facebook.com/v22.0/${META_PHONE_NUMBER_ID}/messages`;
+    console.log(`Sending to Meta API for [${to}] (phoneId: ${META_PHONE_NUMBER_ID}, token len: ${META_WHATSAPP_TOKEN?.length}, token: ${META_WHATSAPP_TOKEN?.slice(0, 8)}...${META_WHATSAPP_TOKEN?.slice(-8)})`);
     try {
       const response = await fetch(url, {
         method: "POST",
