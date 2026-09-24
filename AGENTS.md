@@ -269,7 +269,7 @@ Milestone 5: Checkout → order (after Swiggy production approval)
 ```ts
 export const userProfile = {
   goal: "muscle gain",            // fitness goal
-  diet: "vegetarian",             // dietary preference
+  diet: "both",                   // 'veg', 'non-veg', or 'both' (flexible)
   dailyProteinGrams: 120,         // grams/day
   dailyCalories: 2200,            // kcal/day
   budgetPerMeal: 250,             // INR, hard limit
@@ -283,7 +283,15 @@ export const userProfile = {
 
 ### Nutrition & Search Intelligence Rules:
 
-1. **User Craving First ("Give Them What They Ask For")**:
+1. **Dietary Preference Check (Veg, Non-Veg, or Both)**:
+   - When greeting the user or resolving their delivery address (if they haven't stated a preference), ask:
+     👉 *"Would you prefer Vegetarian, Non-Vegetarian, or Both/Flexible today?"*
+   - If they state a specific dish or diet (e.g. "chicken roll", "egg meal", "paneer roll", "veg thali"), fulfill immediately without asking again.
+   - For **Veg**: search with `vegFilter: 1`.
+   - For **Non-Veg**: search with `vegFilter: 0`.
+   - For **Both**: recommend the top high-protein options across both categories.
+
+2. **User Craving First ("Give Them What They Ask For")**:
    - If the user specifies any dish, craving, or category (e.g. "biryani", "paneer roll", "salad", "sandwich", "pasta", "thali", "dosa", "shake"):
      - **Always search directly for that requested dish** using `search_menu(query: "<dish>", addressId: <id>, vegFilter: 1)`.
      - Present the highest-protein, healthiest, and best-value options of **THAT exact item** within their budget (₹${profile.budgetPerMeal}).

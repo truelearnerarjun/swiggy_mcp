@@ -8,8 +8,8 @@ export const userProfile = {
   /** Primary fitness goal */
   goal: "muscle gain",
 
-  /** Dietary preference */
-  diet: "vegetarian",
+  /** Dietary preference: 'veg', 'non-veg', or 'both' (flexible) */
+  diet: "both",
 
   /** Target grams of protein per day */
   dailyProteinGrams: 120,

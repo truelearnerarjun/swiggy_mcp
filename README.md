@@ -32,13 +32,16 @@ Instead of browsing endless menus and guessing calories, you define your fitness
 
 ## ✨ Features
 
+- **🍗 Full Support for Veg, Non-Veg, or Both:**
+  - The bot asks upfront: *"Would you prefer Vegetarian, Non-Vegetarian, or Both/Flexible today?"*
+  - **Non-Veg Staples:** Grilled/Tandoori Chicken, Chicken Kathi Rolls, Double Egg Wraps, Egg Bhurji, Fish Tikka (~25g-35g protein).
+  - **Veg Staples:** Paneer Tikka, Soya Chaap, Dal Tadka/Khichdi Thalis, Tofu, Sprout Bowls (~20g-30g protein).
+  - **Both / Flexible:** Recommends a curated mix of top protein options across both categories.
 - **🎯 Exact Craving Fulfillment ("Whatever You Ask For"):**
   - Craving biryani, rolls, sandwiches, salads, thalis, or bowls? The agent searches for **what you specifically ask for** rather than defaulting to generic dishes.
-- **💪 Real High-Protein Intelligence:**
-  - Targets verified protein powerhouses: **Paneer Tikka, Paneer Bhurji, Soya Chaap, Dal Tadka/Khichdi, Tofu, and Kathi Wraps** (~20g-35g protein per meal).
 - **🚫 Zero-Tolerance Anti-Junk Filter:**
   - Deep-fried, refined-flour (maida) junk is **strictly disqualified** from high-protein recommendations.
-  - Banned: **Chole Bhature**, **Poori Bhaji**, **Pav Bhaji**, **Samosas**, **Kachori**, **French Fries**, and sugary shakes. (Despite having chickpeas/dal, they are 75%+ refined carbs and oil with abysmal protein-to-calorie density).
+  - Banned: **Chole Bhature**, **Poori Bhaji**, **Pav Bhaji**, **Samosas**, **Kachori**, **Deep-Fried Chicken / Wings**, **French Fries**, and sugary shakes.
 - **💰 Hard Budget Guardrails:**
   - Never recommends dishes exceeding your target per-meal budget limit (e.g. ₹250).
 - **🛵 Live Swiggy MCP Integration:**
