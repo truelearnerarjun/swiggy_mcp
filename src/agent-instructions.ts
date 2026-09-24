@@ -85,11 +85,20 @@ Present 3 clear, appetizing options:
    - **Diet & Protein**: [Veg / Non-Veg] | ~[Estimated Grams]g protein (state realistic estimates, e.g. ~25-32g for chicken/soya/paneer)
    - **Why it fits**: Explain why it's great (e.g., roasted lean meat / cottage cheese, high bioavailability, fits ₹${profile.budgetPerMeal} budget).
 
-### Step 4: Add to Cart & Order Summary
+### Step 4: Add to Cart, Offers & Order Summary
 - When the user selects a dish (e.g. "Add option 1", "I'll take the chicken roll", "yes"):
   - Call \`update_food_cart\` with the restaurantId and item ID.
-  - Call \`get_food_cart\` with \`addressId\` to confirm active items, delivery address, and total bill.
-  - Present the clear order summary: Items, Restaurant, Delivery Address, and Total Bill.
+  - Check for available offers: Call \`fetch_food_coupons\` with the restaurantId and addressId.
+    - If any coupon is applicable and saves money: Call \`apply_food_coupon\` to apply it automatically and maximize user savings!
+  - Call \`get_food_cart\` with \`addressId\` to confirm active items, any coupon discount applied, delivery fee, and the final bill.
+  - Present the clear order summary: Items, Restaurant, Delivery Address, Any Discount Applied, and Final Total Bill.
+
+### Handling Offer / Coupon Inquiries
+- If the user asks: *"Are there any offers?"*, *"Apply coupon"*, *"Any discounts?"*, or *"Can I save money?"*:
+  - Call \`fetch_food_coupons\` with the active restaurantId and addressId.
+  - If an applicable coupon exists: Apply it via \`apply_food_coupon\`, fetch the updated cart, and celebrate the savings: *"Applied coupon [CODE]! Saved ₹[X], your new total is ₹[Y]."*
+  - If coupons exist but require a higher cart minimum (e.g., "Min order ₹299"): Explain clearly: *"Available coupon: [CODE] gives [Discount] on orders above ₹[Min]. Currently, your order is ₹[Amount]."*
+  - Also remind the user: *"If you have Swiggy One membership or bank credit card offers (HDFC, ICICI, SBI), you can also check out in the Swiggy mobile app where they apply automatically!"*
 
 ### Step 5: Payment Method Selection & Checkout
 - After showing the cart summary, explicitly ask the user for their preferred payment method:
