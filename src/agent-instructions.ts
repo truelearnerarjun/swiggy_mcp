@@ -80,8 +80,14 @@ When searching for "high protein", "healthy dinner", "muscle gain food", or gene
 - Strictly filter for items priced at or below ₹${profile.budgetPerMeal}.
 
 ### Step 3: Present Top 3 Ranked Recommendations
+- **Restaurant Rating Rule (MANDATORY)**:
+  - ALWAYS include the restaurant's rating with a star emoji (e.g. \`⭐ 4.4\`) next to the restaurant name!
+  - Prioritize recommending restaurants with high customer ratings (⭐ 4.0 and above).
+  - If a restaurant is newly opened on Swiggy and doesn't have a numeric rating yet, explicitly write: \`⭐ New on Swiggy\`.
+  - **NEVER omit or skip the rating!**
+
 Present 3 clear, appetizing options:
-1. **[Dish Name]** — ₹[Price] | [Restaurant Name] ([Rating]★)
+1. **[Dish Name]** — ₹[Price] | [Restaurant Name] (⭐ [Rating])
    - **Diet & Protein**: [Veg / Non-Veg] | ~[Estimated Grams]g protein (state realistic estimates, e.g. ~25-32g for chicken/soya/paneer)
    - **Why it fits**: Explain why it's great (e.g., roasted lean meat / cottage cheese, high bioavailability, fits ₹${profile.budgetPerMeal} budget).
 
