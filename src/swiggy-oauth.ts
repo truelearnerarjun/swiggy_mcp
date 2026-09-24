@@ -177,29 +177,24 @@ export async function getPhoneSwiggyAccessToken(phoneNumber: string): Promise<st
 }
 
 /**
- * Returns a valid token for a phone number in Individual Mode:
+/**
+ * Returns a valid token for a phone number:
  * 1. If sender has their own per-phone token, use it.
- * 2. If sender is the bot owner/admin, allow fallback to SWIGGY_ACCESS_TOKEN or token-store.json.
- * 3. If sender is another user and has not connected Swiggy, return null (requiring OAuth).
+ * 2. If STRICT_INDIVIDUAL_AUTH=1 and sender is not admin, return null (requiring OAuth).
+ * 3. Otherwise (default), gracefully fall back to the bot's SWIGGY_ACCESS_TOKEN or token-store.json
+ *    so WhatsApp users are NOT blocked while Onrender domain whitelisting is pending with Swiggy!
  */
 export async function getEffectiveSwiggyToken(phoneNumber?: string): Promise<string | null> {
   if (phoneNumber) {
     const phoneToken = await getPhoneSwiggyAccessToken(phoneNumber);
     if (phoneToken) return phoneToken;
 
-    // Check if this sender is the configured bot owner
-    if (isBotAdmin(phoneNumber)) {
-      const envToken = process.env.SWIGGY_ACCESS_TOKEN?.trim();
-      if (envToken) return envToken;
-      const stored = await loadStoredToken();
-      if (stored) return stored.access_token;
+    if (process.env.STRICT_INDIVIDUAL_AUTH === "1" && !isBotAdmin(phoneNumber)) {
+      return null;
     }
-
-    // In Individual Mode, non-admin users MUST authenticate their own Swiggy account!
-    return null;
   }
 
-  // Fallback for CLI runner or local scripts
+  // Fallback to configured bot token
   const envToken = process.env.SWIGGY_ACCESS_TOKEN?.trim();
   if (envToken) return envToken;
   const stored = await loadStoredToken();
