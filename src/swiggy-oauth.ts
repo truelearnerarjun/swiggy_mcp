@@ -95,6 +95,52 @@ import { fileURLToPath } from "url";
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const TOKEN_STORE_PATH = path.resolve(__dirname, "..", "token-store.json");
 
+const TOKENS_DIR = path.resolve(__dirname, "..", "tokens");
+const PHONE_TOKENS_PATH = path.resolve(TOKENS_DIR, "phone-tokens.json");
+
+let phoneTokensLoaded = false;
+async function ensurePhoneTokensLoaded() {
+  if (phoneTokensLoaded) return;
+  phoneTokensLoaded = true;
+  try {
+    const raw = await fs.readFile(PHONE_TOKENS_PATH, "utf-8");
+    const parsed = JSON.parse(raw);
+    for (const [phone, token] of Object.entries(parsed)) {
+      if (validToken(token as TokenStore)) {
+        tokensByPhone.set(phone, token as TokenStore);
+      }
+    }
+  } catch {
+    // file doesn't exist yet
+  }
+}
+
+async function persistPhoneTokens(): Promise<void> {
+  try {
+    await fs.mkdir(TOKENS_DIR, { recursive: true });
+    const obj: Record<string, TokenStore> = {};
+    for (const [phone, token] of tokensByPhone.entries()) {
+      if (validToken(token)) {
+        obj[phone] = token;
+      }
+    }
+    await fs.writeFile(PHONE_TOKENS_PATH, JSON.stringify(obj, null, 2), "utf-8");
+  } catch (err) {
+    console.error("Failed to persist phone tokens:", err);
+  }
+}
+
+export function normalizePhoneNumber(phone: string): string {
+  return phone.replace(/^whatsapp:/i, "").replace(/\D/g, "");
+}
+
+export function isBotAdmin(phoneNumber: string): boolean {
+  const adminConfig = (process.env.ADMIN_PHONE ?? process.env.BOT_OWNER_PHONE ?? "917080576302").trim();
+  const adminClean = normalizePhoneNumber(adminConfig);
+  const senderClean = normalizePhoneNumber(phoneNumber);
+  return Boolean(adminClean && senderClean === adminClean);
+}
+
 export async function loadStoredToken(): Promise<TokenStore | null> {
   try {
     const raw = await fs.readFile(TOKEN_STORE_PATH, "utf-8");
@@ -119,28 +165,43 @@ function validToken(token: TokenStore | undefined): token is TokenStore {
   return Boolean(token?.access_token && token.expires_at > Date.now() + 60_000);
 }
 
-/** Returns a non-expired, in-memory token for one WhatsApp sender. */
-export function getPhoneSwiggyAccessToken(phoneNumber: string): string | null {
-  const token = tokensByPhone.get(phoneNumber);
+/** Returns a non-expired token for one WhatsApp sender (from memory or file). */
+export async function getPhoneSwiggyAccessToken(phoneNumber: string): Promise<string | null> {
+  await ensurePhoneTokensLoaded();
+  const cleanPhone = normalizePhoneNumber(phoneNumber);
+  const token = tokensByPhone.get(cleanPhone) ?? tokensByPhone.get(phoneNumber);
   if (validToken(token)) return token.access_token;
+  tokensByPhone.delete(cleanPhone);
   tokensByPhone.delete(phoneNumber);
   return null;
 }
 
 /**
- * Returns a valid token for a phone number or falls back to system token:
- * 1. If user has a per-phone token in tokensByPhone, use it.
- * 2. Otherwise fall back to process.env.SWIGGY_ACCESS_TOKEN.
- * 3. Otherwise fall back to token-store.json.
+ * Returns a valid token for a phone number in Individual Mode:
+ * 1. If sender has their own per-phone token, use it.
+ * 2. If sender is the bot owner/admin, allow fallback to SWIGGY_ACCESS_TOKEN or token-store.json.
+ * 3. If sender is another user and has not connected Swiggy, return null (requiring OAuth).
  */
 export async function getEffectiveSwiggyToken(phoneNumber?: string): Promise<string | null> {
   if (phoneNumber) {
-    const phoneToken = tokensByPhone.get(phoneNumber);
-    if (validToken(phoneToken)) return phoneToken.access_token;
+    const phoneToken = await getPhoneSwiggyAccessToken(phoneNumber);
+    if (phoneToken) return phoneToken;
+
+    // Check if this sender is the configured bot owner
+    if (isBotAdmin(phoneNumber)) {
+      const envToken = process.env.SWIGGY_ACCESS_TOKEN?.trim();
+      if (envToken) return envToken;
+      const stored = await loadStoredToken();
+      if (stored) return stored.access_token;
+    }
+
+    // In Individual Mode, non-admin users MUST authenticate their own Swiggy account!
+    return null;
   }
+
+  // Fallback for CLI runner or local scripts
   const envToken = process.env.SWIGGY_ACCESS_TOKEN?.trim();
   if (envToken) return envToken;
-
   const stored = await loadStoredToken();
   if (stored) return stored.access_token;
 
@@ -149,7 +210,6 @@ export async function getEffectiveSwiggyToken(phoneNumber?: string): Promise<str
 
 /**
  * Creates a single-use authorization URL for one WhatsApp sender.
- * Tokens deliberately remain in memory; never persist a user's Swiggy token as plaintext.
  */
 export async function beginPhoneSwiggyAuthorization(
   phoneNumber: string,
@@ -203,17 +263,24 @@ export async function completePhoneSwiggyAuthorization(input: {
     pending.clientId,
     pending.redirectUri
   );
-  tokensByPhone.set(pending.phoneNumber, {
+  const cleanPhone = normalizePhoneNumber(pending.phoneNumber);
+  const storeItem: TokenStore = {
     access_token: token.access_token,
     expires_at: Date.now() + token.expires_in * 1000,
     scope: token.scope,
-  });
-  await saveToken(token).catch(() => {});
+  };
+  tokensByPhone.set(cleanPhone, storeItem);
+  tokensByPhone.set(pending.phoneNumber, storeItem);
+  await persistPhoneTokens();
+
   return { phoneNumber: pending.phoneNumber };
 }
 
-export function forgetPhoneSwiggyAccessToken(phoneNumber: string): void {
+export async function forgetPhoneSwiggyAccessToken(phoneNumber: string): Promise<void> {
+  const cleanPhone = normalizePhoneNumber(phoneNumber);
+  tokensByPhone.delete(cleanPhone);
   tokensByPhone.delete(phoneNumber);
+  await persistPhoneTokens();
 }
 
 /** Returns the effective token or throws if none configured. */

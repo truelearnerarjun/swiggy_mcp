@@ -174,11 +174,43 @@ async function checkMetaTokenStatus(): Promise<{ valid: boolean; message: string
         state: typeof req.query.state === "string" ? req.query.state : undefined,
         error: typeof req.query.error === "string" ? req.query.error : undefined,
       });
+      const existing = sessions.get(phoneNumber);
+      try { existing?.ctx?.mcpClient?.close(); } catch {}
       sessions.delete(phoneNumber);
-      res.type("html").send("<h2>Swiggy connected</h2><p>Return to WhatsApp to continue.</p>");
-      await sendWhatsAppMessage(phoneNumber, "Your Swiggy account is connected. Tell me what you would like to eat.");
+
+      const successHtml = `
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Swiggy Connected | AI Concierge</title>
+  <style>
+    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #0b0f19; color: #f3f4f6; display: flex; align-items: center; justify-content: center; min-height: 100vh; margin: 0; padding: 20px; }
+    .card { background: #161e2e; border: 1px solid #2d3748; border-radius: 16px; padding: 36px; max-width: 420px; text-align: center; box-shadow: 0 10px 25px rgba(0,0,0,0.5); }
+    .icon { width: 68px; height: 68px; background: #fc8019; border-radius: 50%; display: flex; align-items: center; justify-content: center; margin: 0 auto 20px; font-size: 34px; color: #fff; }
+    h2 { margin: 0 0 12px; color: #ffffff; font-size: 24px; font-weight: 700; }
+    p { color: #9ca3af; line-height: 1.6; margin: 0 0 28px; font-size: 15px; }
+    .btn { display: inline-block; background: #fc8019; color: #fff; text-decoration: none; font-weight: 600; padding: 14px 28px; border-radius: 10px; font-size: 16px; transition: background 0.2s; }
+    .btn:hover { background: #e06d0c; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <div class="icon">🍔</div>
+    <h2>Swiggy Connected!</h2>
+    <p>Your Swiggy account has been linked successfully. Return to WhatsApp to start discovering meals and placing orders.</p>
+    <a class="btn" href="https://wa.me/">Return to WhatsApp</a>
+  </div>
+</body>
+</html>`;
+      res.type("html").send(successHtml);
+      await sendWhatsAppMessage(
+        phoneNumber,
+        "🎉 *Your Swiggy account is successfully connected!*\n\nWhere should we deliver, and what are you craving today? (e.g. Biryani, Rolls, Pizza, or a healthy High-Protein meal?)"
+      );
     } catch (err: any) {
-      res.status(400).type("html").send("<h2>Could not connect Swiggy</h2><p>Return to WhatsApp and request a new connect link.</p>");
+      res.status(400).type("html").send(`<h2>Could not connect Swiggy</h2><p>${err?.message ?? "Authorization failed."}</p><p>Return to WhatsApp and request a new connect link.</p>`);
       console.warn("Swiggy OAuth callback failed:", err?.message ?? err);
     }
   });
@@ -222,8 +254,10 @@ async function checkMetaTokenStatus(): Promise<{ valid: boolean; message: string
 
     cleanExpiredSessions();
 
+    const lowerMsg = userMessage.toLowerCase();
+
     // Reset command
-    if (userMessage.toLowerCase() === "/reset" || userMessage.toLowerCase() === "reset") {
+    if (lowerMsg === "/reset" || lowerMsg === "reset") {
       const existing = sessions.get(sender);
       try { existing?.ctx?.mcpClient?.close(); } catch {}
       sessions.delete(sender);
@@ -233,18 +267,39 @@ async function checkMetaTokenStatus(): Promise<{ valid: boolean; message: string
       return;
     }
 
+    // Logout / Disconnect command
+    if (lowerMsg === "/logout" || lowerMsg === "logout" || lowerMsg === "/disconnect" || lowerMsg === "disconnect") {
+      const existing = sessions.get(sender);
+      try { existing?.ctx?.mcpClient?.close(); } catch {}
+      sessions.delete(sender);
+      await forgetPhoneSwiggyAccessToken(sender);
+      const logoutMsg = "👋 *You have been logged out of your Swiggy account.*\n\nSend any message whenever you'd like to connect a new account or start fresh!";
+      console.log(`📤 Sending logout message to [${sender}]`);
+      await sendWhatsAppMessage(sender, logoutMsg);
+      return;
+    }
+
     const accessToken = await getEffectiveSwiggyToken(sender);
     if (!accessToken) {
       if (!OAUTH_PUBLIC_BASE_URL) {
-        await sendWhatsAppMessage(sender, "Swiggy connection is not configured yet. Please contact the bot owner.");
+        await sendWhatsAppMessage(sender, "⚠️ Swiggy connection is not configured yet. Please contact the bot owner.");
         return;
       }
       try {
         const connectUrl = await beginPhoneSwiggyAuthorization(sender, `${OAUTH_PUBLIC_BASE_URL}${OAUTH_CALLBACK_PATH}`);
-        await sendWhatsAppMessage(sender, `Welcome to Swiggy AI. Connect your own Swiggy account to access your addresses and cart:\n${connectUrl}\n\nAfter you finish, return here and tell me what you would like to eat.`);
+        const welcomeMsg =
+`👋 *Welcome to Swiggy AI!* 🍔
+
+To view your delivery addresses, access your cart, and place orders, please connect your Swiggy account:
+
+👉 *Connect Swiggy:* ${connectUrl}
+
+🔒 _Secure phone + OTP login on Swiggy's official portal. Valid for 5 days._
+After connecting, return right here and tell me what you'd like to eat!`;
+        await sendWhatsAppMessage(sender, welcomeMsg);
       } catch (err: any) {
         console.error("Could not start Swiggy OAuth:", err?.message ?? err);
-        await sendWhatsAppMessage(sender, "I could not start Swiggy connection. Please try again shortly.");
+        await sendWhatsAppMessage(sender, "⚠️ I could not generate your Swiggy connection link. Please try again shortly.");
       }
       return;
     }
