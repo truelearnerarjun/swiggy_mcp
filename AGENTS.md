@@ -203,10 +203,12 @@ await client.callTool({
   name: "update_food_cart",
   arguments: {
     restaurantId: menu.data.restaurantId,
-    items: [{ itemId: menu.data.items[0].id, quantity: 1 }],
+    addressId: home.id,
+    cartItems: [{ menu_item_id: menu.data.items[0].id, quantity: 1 }],
   },
 });
 // Cart is tied to ONE restaurant. Changing restaurant flushes the cart.
+// Parameters: cartItems (Array of { menu_item_id: string, quantity: number }). NEVER pass "itemId" or "items".
 ```
 
 **Step 5 — Payment Method Selection & Order Placement**

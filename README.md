@@ -44,11 +44,12 @@ Instead of browsing endless menus and guessing calories, you define your fitness
   - Banned: **Chole Bhature**, **Poori Bhaji**, **Pav Bhaji**, **Samosas**, **Kachori**, **Deep-Fried Chicken / Wings**, **French Fries**, and sugary shakes.
 - **💰 Hard Budget Guardrails:**
   - Never recommends dishes exceeding your target per-meal budget limit (e.g. ₹250).
-- **🛵 Live Swiggy MCP Integration:**
-  - `get_addresses`: Fetches your real saved Swiggy delivery addresses.
-  - `search_menu`: High-precision dish & ingredient search with `vegFilter` (1 for veg, 0 for non-veg).
+- **🛵 Live Swiggy MCP Integration & Cart Engineering:**
+  - `get_addresses`: Fetches real saved delivery addresses with automatic index and label resolution (e.g. typing "3" or "Home" instantly resolves to the correct Swiggy address).
+  - `search_menu`: High-precision dish & ingredient search with `vegFilter` (1 for veg, 0 for non-veg) and restaurant ratings.
   - `search_restaurants` & `get_restaurant_menu`: Restaurant discovery and full menu browsing.
-  - `update_food_cart` & `get_food_cart`: Seamless cart building and price verification.
+  - `update_food_cart` & `get_food_cart`: Seamless cart building with automatic schema normalization (`cartItems`, `menu_item_id`, quantity).
+  - `fetch_food_coupons` & `apply_food_coupon`: Automatically detects and applies the best discount coupons to maximize savings.
 - **💳 Intelligent Multi-Option Payment Flow:**
   - **UPI Link / QR:** Generates a live Swiggy UPI payment link/QR for Google Pay, PhonePe, Paytm, and BHIM directly on WhatsApp.
   - **Cash on Delivery (Cash):** Direct COD order placement with explicit user approval.
