@@ -2,7 +2,7 @@
 
 An AI-powered nutrition intelligence and food-ordering agent built on top of the **Swiggy Model Context Protocol (MCP)** and **Google Gemini 2.5 Flash**. 
 
-Instead of browsing endless menus and guessing calories, you define your fitness and macronutrient goals (e.g., *"high-protein vegetarian dinner under ₹250"*), and the agent discovers restaurants, scores dishes for nutrition, builds your cart, and places orders—accessible via **Terminal CLI** or **WhatsApp**.
+Instead of browsing endless menus and guessing calories, you define your fitness and macronutrient goals (e.g., *"high-protein vegetarian dinner under ₹250"* or *"healthy paneer roll under ₹200"*), and the agent discovers restaurants, scores dishes for real protein and nutrition, builds your cart, and places orders—accessible via **Terminal CLI**, **WhatsApp (Meta Cloud API)**, or deployed on the **Cloud (Render)**.
 
 ---
 
@@ -12,12 +12,12 @@ Instead of browsing endless menus and guessing calories, you define your fitness
                         ┌────────────────────────────────────────────────────────┐
                         │             AI Nutrition Agent                         │
                         │                                                        │
-[CLI / WhatsApp]        │  1. Understands fitness goal (e.g. 120g protein/day)   │
+[CLI / WhatsApp]        │  1. Understands user's exact dish request & diet       │
        │                │  2. Resolves delivery address via Swiggy MCP           │
-       ▼                │  3. Searches open restaurants & live menus             │
+       ▼                │  3. Searches dishes via search_menu with vegFilter     │
 [Express Webhook / CLI] │  4. AI scores meals for protein vs price vs budget     │
-       │                │  5. Recommends top 3 ranked options with reasoning     │
-       ▼                │  6. Adds to cart & asks for explicit order approval    │
+       │                │  5. Filters out deep-fried junk (anti-junk engine)     │
+       ▼                │  6. Recommends top 3 ranked options with reasoning     │
    Google Gemini ◄──────┴───────────────────────────┬────────────────────────────┘
 (Function Calling)                                  │
                                                     ▼
@@ -32,17 +32,30 @@ Instead of browsing endless menus and guessing calories, you define your fitness
 
 ## ✨ Features
 
-- **🎯 Personalized Nutrition Scoring:** Ranks dishes based on target macronutrients (e.g. protein, calories, strict dietary preferences like vegetarian/vegan).
-- **💰 Hard Budget Guardrails:** Never recommends dishes exceeding your target per-meal budget limit.
+- **🎯 Exact Craving Fulfillment ("Whatever You Ask For"):**
+  - Craving biryani, rolls, sandwiches, salads, thalis, or bowls? The agent searches for **what you specifically ask for** rather than defaulting to generic dishes.
+- **💪 Real High-Protein Intelligence:**
+  - Targets verified protein powerhouses: **Paneer Tikka, Paneer Bhurji, Soya Chaap, Dal Tadka/Khichdi, Tofu, and Kathi Wraps** (~20g-35g protein per meal).
+- **🚫 Zero-Tolerance Anti-Junk Filter:**
+  - Deep-fried, refined-flour (maida) junk is **strictly disqualified** from high-protein recommendations.
+  - Banned: **Chole Bhature**, **Poori Bhaji**, **Pav Bhaji**, **Samosas**, **Kachori**, **French Fries**, and sugary shakes. (Despite having chickpeas/dal, they are 75%+ refined carbs and oil with abysmal protein-to-calorie density).
+- **💰 Hard Budget Guardrails:**
+  - Never recommends dishes exceeding your target per-meal budget limit (e.g. ₹250).
 - **🛵 Live Swiggy MCP Integration:**
-  - `get_addresses`: Automatically fetches your real saved Swiggy delivery addresses.
-  - `search_restaurants`: Searches open restaurants matching your dietary requirements.
-  - `search_menu` & `get_restaurant_menu`: Live menu inspection with dish prices and availability.
-  - `update_food_cart`: Adds selected meals directly to your active Swiggy cart.
-- **🔒 Secure OAuth 2.1 + PKCE:** Dynamic Client Registration with Swiggy—no credentials or passwords stored; tokens valid for 5 days.
-- **📱 Dual Interface:**
-  - **Terminal CLI:** Interactive chat directly in your console.
-  - **WhatsApp Bot:** Powered by Twilio with asynchronous reply dispatching (avoids 15-second webhook timeouts) and multi-turn per-user memory.
+  - `get_addresses`: Fetches your real saved Swiggy delivery addresses.
+  - `search_menu`: High-precision dish & ingredient search with `vegFilter` (1 for veg, 0 for non-veg).
+  - `search_restaurants` & `get_restaurant_menu`: Restaurant discovery and full menu browsing.
+  - `update_food_cart` & `get_food_cart`: Seamless cart building and price verification.
+- **🔒 Secure OAuth 2.1 + PKCE:**
+  - Dynamic Client Registration with Swiggy—no credentials or passwords stored; tokens valid for 5 days.
+- **📱 Multi-Channel Support:**
+  - **Terminal CLI:** Interactive chat in your terminal.
+  - **Official Meta WhatsApp Cloud API:** Real-time WhatsApp bot with zero third-party fees.
+  - **Twilio WhatsApp:** Alternative sandbox webhook.
+- **☁️ 24/7 Cloud Deployment & Diagnostics:**
+  - Ready for **Render**, Railway, or VPS.
+  - Live health check at `/healthz` showing Meta token validity and active sessions.
+  - Live remote logs at `/logs` for real-time troubleshooting.
 
 ---
 
@@ -53,7 +66,8 @@ Instead of browsing endless menus and guessing calories, you define your fitness
 - **Protocol:** Model Context Protocol (`@modelcontextprotocol/sdk`)
 - **Commerce Backend:** Swiggy Food MCP Server (`https://mcp.swiggy.com/food`)
 - **Authentication:** OAuth 2.1 + PKCE + Express local callback listener
-- **Messaging (WhatsApp):** Twilio WhatsApp API + Express Webhook Server
+- **Messaging:** Meta WhatsApp Cloud API / Twilio WhatsApp API
+- **Deployment:** Render Cloud Web Service (`https://swiggy-mcp-j47z.onrender.com/`)
 
 ---
 
@@ -81,12 +95,17 @@ Edit `.env`:
 # Google Gemini API Key
 GEMINI_API_KEY=your_gemini_api_key_here
 
-# Swiggy MCP Endpoint (default: Food server)
+# Swiggy MCP Endpoint (Food server)
 SWIGGY_MCP_FOOD_URL=https://mcp.swiggy.com/food
 
+# (Optional) Meta WhatsApp Cloud API
+META_WHATSAPP_TOKEN=your_meta_system_user_token
+META_PHONE_NUMBER_ID=your_meta_phone_number_id
+META_VERIFY_TOKEN=swiggy_agent_secret
+
 # (Optional) Twilio WhatsApp Integration
-TWILIO_ACCOUNT_SID=ACxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
-TWILIO_AUTH_TOKEN=your_auth_token_here
+TWILIO_ACCOUNT_SID=your_twilio_sid
+TWILIO_AUTH_TOKEN=your_twilio_auth_token
 TWILIO_WHATSAPP_NUMBER=whatsapp:+14155238886
 PORT=3000
 ```
@@ -115,49 +134,67 @@ npm start
 1. On first launch, a browser window opens for one-time Swiggy OAuth login via phone + OTP.
 2. The access token is saved locally to `token-store.json` (gitignored, valid for 5 days).
 3. Start chatting:
-```
+```text
 > You: What are my saved Swiggy addresses?
 🤖 Agent: I found 8 saved addresses for you...
 
-> You: Use my Home address in Ghansoli, find high protein veg dinner under 250
-🤖 Agent: Here are my top 3 recommendations:
-1. Dal Tadka Rice Combo from Punjab Depot — ₹249 (~20-25g protein)
-2. Kali Dal Meal from Charcoal Eats — ₹249 (~20-25g protein)
-3. Chole Bhature from Dadi Ka Khazana — ₹229 (~15-20g protein)
+> You: Use address 6 (Home), find high protein dinner under 250
+🤖 Agent: Here are my top 3 high-protein recommendations:
+1. Paneer Tikka (3 Pcs) — ₹189 | Charcoal Eats (4.0★) (~20-25g protein)
+2. Masala Soya Chaap Kathi Roll — ₹189 | Rolling Fresh (4.8★) (~25-30g protein)
+3. Ghee Tadka Dal Khichdi Thali — ₹229 | Daily Kitchen (4.8★) (~20-30g protein)
+
+> You: I want a high protein roll under 250
+🤖 Agent: Here are the best rolls for your address:
+1. Masala Soya Chaap Kathi Roll — ₹189 | Rolling Fresh (4.8★)
+2. Paneer Kathi Roll — ₹189 | Rolling Fresh (4.3★)
+3. Soya Chaap Tikka Roll (7") — ₹249 | Charcoal Eats (3.9★)
 ```
 
 ---
 
-### Option B: Meta WhatsApp Cloud API (Official)
+### Option B: Official Meta WhatsApp Cloud API
 ```bash
 npm run whatsapp:meta
+# or deployed 24/7 on Render!
 ```
 1. Create an app on [Meta for Developers](https://developers.facebook.com) with the **WhatsApp** product.
-2. In your `.env`:
-```env
-META_WHATSAPP_TOKEN=your_meta_access_token
-META_PHONE_NUMBER_ID=your_phone_number_id
-META_VERIFY_TOKEN=swiggy_agent_secret
-```
-3. Expose port 3000 via ngrok: `npx ngrok http 3000`
-4. In Meta WhatsApp Configuration, set:
-   - **Callback URL:** `https://<your-ngrok-subdomain>.ngrok-free.app/webhook`
+2. Add your `META_WHATSAPP_TOKEN` (get a Permanent System User Token from Meta Business Suite so it never expires).
+3. In Meta WhatsApp Webhook configuration:
+   - **Callback URL:** `https://your-domain.onrender.com/webhook`
    - **Verify Token:** `swiggy_agent_secret`
-5. Message the bot from your WhatsApp number!
+   - **Webhook Fields:** Check `messages`.
+4. Message the bot from your phone on WhatsApp!
 
 ---
 
-### Option C: Twilio WhatsApp Bot
+### Option C: Twilio WhatsApp Sandbox
 ```bash
 npm run whatsapp:twilio
 ```
-1. Expose your local port via ngrok: `npx ngrok http 3000`
-2. In your [Twilio Console](https://console.twilio.com) > **WhatsApp Sandbox Settings**, set the webhook URL to:
-```
-https://<your-ngrok-subdomain>.ngrok-free.app/webhook
-```
-3. Message the bot from your phone on WhatsApp!
-   - Send `/reset` anytime to wipe conversation history and start fresh.
+1. Expose your port with ngrok (`npx ngrok http 3000`).
+2. Point Twilio Sandbox Webhook to `https://<ngrok-url>/webhook`.
+
+---
+
+## ☁️ Cloud Deployment (Render)
+
+This repository includes full support for free, 24/7 deployment on [Render](https://render.com):
+
+1. **Create Web Service** on Render connected to this repository (`main` branch).
+2. **Build Command:** `npm run build`
+3. **Start Command:** `node dist/meta-whatsapp-server.js`
+4. **Environment Variables on Render:**
+   - `GEMINI_API_KEY`: Your Gemini API key.
+   - `SWIGGY_ACCESS_TOKEN`: The 5-day Swiggy OAuth token (from `token-store.json`).
+   - `META_WHATSAPP_TOKEN`: Your Meta Cloud API Access Token.
+   - `META_PHONE_NUMBER_ID`: Your Meta WhatsApp Phone Number ID.
+   - `META_VERIFY_TOKEN`: `swiggy_agent_secret`
+   - `PORT`: `10000`
+
+### Diagnostics Endpoints
+- **Health Check:** `GET /healthz` (returns server status, active sessions, and Meta token validity).
+- **Live Logs:** `GET /logs` (returns recent live execution logs).
 
 ---
 
@@ -165,26 +202,27 @@ https://<your-ngrok-subdomain>.ngrok-free.app/webhook
 
 ```
 ├── src/
-│   ├── index.ts              # Interactive terminal CLI chat loop
-│   ├── agent-core.ts         # Shared Gemini + Swiggy MCP function-calling engine
-│   ├── whatsapp-server.ts    # Twilio Express webhook server & session manager
-│   ├── swiggy-oauth.ts       # OAuth 2.1 + PKCE authentication & token manager
-│   ├── user-profile.ts       # Typed nutrition configuration (calories, protein, budget)
-│   └── agent-instructions.ts # Dynamic system prompt generator
-├── AGENTS.md                 # Complete project specification and Swiggy MCP guidelines
-├── .env.example              # Template environment variables
-├── .gitignore                # Protects secrets (.env, token-store.json)
-├── package.json              # Dependencies and scripts
-└── tsconfig.json             # TypeScript configuration
+│   ├── index.ts                # Interactive terminal CLI chat loop
+│   ├── agent-core.ts           # Shared Gemini + Swiggy MCP function-calling engine
+│   ├── agent-instructions.ts   # System prompt builder with anti-junk & craving intelligence
+│   ├── meta-whatsapp-server.ts # Meta WhatsApp Cloud API server (/healthz, /logs)
+│   ├── whatsapp-server.ts      # Twilio WhatsApp sandbox server fallback
+│   ├── swiggy-oauth.ts         # OAuth 2.1 + PKCE authentication & headless token manager
+│   └── user-profile.ts         # Typed nutrition configuration (budget, protein, diet)
+├── AGENTS.md                   # Source of truth specification and official Swiggy guidelines
+├── .env.example                # Template environment variables
+├── .gitignore                  # Protects secrets (.env, token-store.json, scratch/)
+├── package.json                # Dependencies and run scripts
+└── tsconfig.json               # TypeScript configuration
 ```
 
 ---
 
 ## 🔒 Security & Privacy
 
-- **No Plaintext Passwords:** Uses official Swiggy OAuth 2.1 with PKCE. The agent never sees or stores phone passwords or credit card numbers.
-- **Git Security:** `.env` and `token-store.json` are strictly excluded in `.gitignore`.
-- **User Confirmation Required:** The agent will **never** place an order automatically without explicit user confirmation.
+- **Official OAuth 2.1 + PKCE:** Dynamic Client Registration with Swiggy—no passwords or credit card numbers stored.
+- **Git Security:** `.env`, `token-store.json`, and scratch files are strictly gitignored.
+- **Explicit Confirmation:** The agent will **never** place an order automatically without explicit user confirmation.
 
 ---
 

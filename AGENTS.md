@@ -281,13 +281,37 @@ export const userProfile = {
 };
 ```
 
-### Nutrition rules:
+### Nutrition & Search Intelligence Rules:
 
-- Do not invent nutritional information.
-- If exact protein/calorie data is unavailable, clearly label estimates.
-- Distinguish: `estimated ~35g protein` vs `verified 35g protein`.
-- Budget is a hard limit. Never recommend meals exceeding `budgetPerMeal`.
-- Always explain *why* a meal fits the user's goals.
+1. **User Craving First ("Give Them What They Ask For")**:
+   - If the user specifies any dish, craving, or category (e.g. "biryani", "paneer roll", "salad", "sandwich", "pasta", "thali", "dosa", "shake"):
+     - **Always search directly for that requested dish** using `search_menu(query: "<dish>", addressId: <id>, vegFilter: 1)`.
+     - Present the highest-protein, healthiest, and best-value options of **THAT exact item** within their budget (₹${profile.budgetPerMeal}).
+     - Do NOT substitute an unrelated dish if their requested item is available.
+
+2. **Real High-Protein Standards (Strict Anti-Junk Filter)**:
+   - When searching for "high protein" or general fitness meals, target genuine protein powerhouses:
+     - **Paneer**: Paneer Tikka (Tandoori/Grilled), Paneer Bhurji, Paneer Kathi Roll, Paneer Bowls (~20-30g protein).
+     - **Soya**: Soya Chaap (Tandoori/Tikka/Masala), Soya Bhurji, Soya Roll (~25-35g protein).
+     - **Lentils & Legumes**: Moong Dal Khichdi, Dal Tadka, Dal Makhani with Roti, Sprouts, Chana Salad (~15-25g protein).
+     - **Tofu & Healthy Bowls**: Tofu Stir Fry, Protein Bowls, Greek Yogurt Combos (~18-25g protein).
+     - *(If non-veg/egg)*: Boiled Eggs, Egg Bhurji, Grilled Chicken, Chicken Tikka (~25-35g protein).
+
+3. **🚨 Strict Disqualification of Deep-Fried Junk (NO CHOLE BHATURE)**:
+   - **NEVER** recommend deep-fried, refined-flour (maida), or heavy carb-loaded junk food as "high protein".
+   - **Strictly Banned Items**:
+     - ❌ **Chole Bhature** (Bhature is deep-fried refined flour; poor protein-to-calorie density: ~8-10g protein for 750+ kcal and 45g saturated fat).
+     - ❌ **Poori Bhaji / Poori Chole** (deep-fried oil bombs).
+     - ❌ **Pav Bhaji** (butter-soaked white bread pav with potato mash).
+     - ❌ **Samosas, Kachoris, Pakoras, Medu Vada** (deep-fried snack junk).
+     - ❌ **French Fries, Fried Momos, Sugary Shakes**.
+
+4. **Hard Budget Cap**:
+   - Budget (`budgetPerMeal`) is a hard limit (e.g., ₹250). Never recommend meals exceeding this price.
+
+5. **Transparency & Honesty**:
+   - Do not invent nutritional values. If exact verified laboratory data is not published on the menu, label estimates clearly (`~22g protein (estimated)`).
+   - Always explain *why* a meal fits the user's fitness goal.
 
 ---
 
@@ -295,31 +319,35 @@ export const userProfile = {
 
 ### Stack:
 
-| Layer    | Technology                        |
-|----------|-----------------------------------|
-| CLI      | Node.js + TypeScript (Phase 1)    |
-| Agent    | Google Gemini (`@google/generative-ai`) |
-| MCP      | `@modelcontextprotocol/sdk` (raw client) |
-| Auth     | Custom OAuth 2.1 + PKCE + Express callback |
-| Config   | `dotenv`                          |
-| Frontend | React / Next.js (Phase 2+)        |
-| Database | PostgreSQL / Supabase (Phase 2+)  |
+| Layer             | Technology                                                |
+|-------------------|-----------------------------------------------------------|
+| CLI               | Node.js + TypeScript (`src/index.ts`)                     |
+| WhatsApp (Meta)   | Official Meta WhatsApp Cloud API (`src/meta-whatsapp-server.ts`) |
+| WhatsApp (Twilio) | Twilio Sandbox Webhook (`src/whatsapp-server.ts`)         |
+| Cloud Hosting     | Render Web Service (`https://swiggy-mcp-j47z.onrender.com/`) |
+| Agent Engine      | Google Gemini 2.5 Flash (`@google/genai`)                 |
+| Commerce Protocol | Swiggy Food MCP (`@modelcontextprotocol/sdk`)             |
+| Auth              | OAuth 2.1 + PKCE + Dynamic Client Registration            |
+| Diagnostics       | Live Health Check (`/healthz`) & Live Log Stream (`/logs`)|
 
-### File structure (Phase 1 minimum):
+### File structure:
 
 ```
 f:\swigg_mcp_agent\
 ├── src/
-│   ├── index.ts              ← CLI entry point, agent wiring
-│   ├── swiggy-oauth.ts       ← OAuth 2.1 + PKCE provider
-│   ├── user-profile.ts       ← Nutrition config (typed)
-│   └── agent-instructions.ts ← Dynamic system prompt builder
-├── .env                      ← (gitignored) secrets
-├── .env.example              ← variable names only, no values
-├── .gitignore
-├── package.json
-├── tsconfig.json
-└── token-store.json          ← (gitignored) persisted OAuth token
+│   ├── index.ts                ← Interactive CLI entry point
+│   ├── agent-core.ts           ← Shared Gemini + Swiggy MCP engine & tool declarations
+│   ├── agent-instructions.ts   ← System prompt builder with anti-junk & craving intelligence
+│   ├── meta-whatsapp-server.ts ← Meta WhatsApp Cloud API Express server with /healthz & /logs
+│   ├── whatsapp-server.ts      ← Twilio WhatsApp sandbox server fallback
+│   ├── swiggy-oauth.ts         ← OAuth 2.1 + PKCE provider (headless & interactive)
+│   └── user-profile.ts         ← Typed nutrition configuration (budget, protein, diet)
+├── .env                        ← (gitignored) secrets & live tokens
+├── .env.example                ← Environment template
+├── .gitignore                  ← Excludes .env, token-store.json, scratch/
+├── package.json                ← Dependencies and run scripts
+├── tsconfig.json               ← TypeScript compiler options
+└── token-store.json            ← (gitignored) persisted OAuth token
 ```
 
 Keep Swiggy-specific code isolated from nutrition logic.
