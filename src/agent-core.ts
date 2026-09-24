@@ -404,6 +404,13 @@ export async function runAgentTurn(
           }
         }
 
+        // apply_food_coupon normalization: map code -> couponCode
+        if (toolName === "apply_food_coupon") {
+          if (args.code && !args.couponCode) {
+            args.couponCode = args.code;
+          }
+        }
+
         // Universal Address ID resolution across all tools
         if ("addressId" in args || args.addressId !== undefined) {
           args.addressId = resolveAddressId(args.addressId);
