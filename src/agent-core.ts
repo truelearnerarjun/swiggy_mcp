@@ -371,6 +371,39 @@ export async function runAgentTurn(
           }
         }
 
+        // place_food_order normalization: auto-configure UPI intentApp or QR
+        if (toolName === "place_food_order") {
+          const pm = String(args.paymentMethod || "").trim().toUpperCase();
+          if (pm === "UPI" || pm === "ONLINE" || (!pm && !args.cod)) {
+            args.paymentMethod = "UPI";
+            if (!args.intentApp && !args.generateUPIQR) {
+              // Default to "phonepe://" which generates the universal Swiggy bridge URL
+              // that allows paying via ANY UPI app (GPay, PhonePe, Paytm, BHIM, CRED)
+              args.intentApp = "phonepe://";
+            } else if (typeof args.intentApp === "string") {
+              const app = args.intentApp.toLowerCase();
+              if (app.includes("gpay") || app.includes("google")) {
+                args.intentApp = "gpay://upi/";
+              } else if (app.includes("phonepe") || app.includes("phone")) {
+                args.intentApp = "phonepe://";
+              } else if (app.includes("paytm")) {
+                args.intentApp = "paytmmp://";
+              } else if (app.includes("bhim")) {
+                args.intentApp = "bhim://upi/";
+              } else if (app.includes("cred")) {
+                args.intentApp = "credpay://upi/";
+              } else if (app.includes("qr") || app.includes("scan")) {
+                args.generateUPIQR = true;
+                delete args.intentApp;
+              }
+            }
+          } else if (pm === "CASH" || pm === "COD") {
+            args.paymentMethod = "Cash";
+            delete args.intentApp;
+            delete args.generateUPIQR;
+          }
+        }
+
         // Universal Address ID resolution across all tools
         if ("addressId" in args || args.addressId !== undefined) {
           args.addressId = resolveAddressId(args.addressId);

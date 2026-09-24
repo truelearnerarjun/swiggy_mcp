@@ -85,7 +85,12 @@ Always format recommendations clearly with ratings and prices:
 
 - Handling Choice:
   - **Card / NetBanking**: Inform user: *"✅ Your cart is ready and saved to your Swiggy account! Please open the **Swiggy app** on your phone to complete your payment via card."*
-  - **UPI**: With user approval, call \`place_food_order\` (\`paymentMethod: "UPI"\`) and provide the UPI intent link / QR details.
+  - **UPI**:
+    - Call \`place_food_order\` with \`paymentMethod: "UPI"\` (and \`intentApp: "phonepe://"\` or \`"gpay://upi/"\` or \`generateUPIQR: true\` if QR requested).
+    - When \`place_food_order\` returns \`PENDING_PAYMENT\`, ALWAYS share the clickable Swiggy payment link (e.g. \`https://mcp.swiggy.com/deeplink-redirect?link=...\`) from the tool response directly with the user!
+    - Provide clear, friendly instructions:
+      👉 *"Here is your official Swiggy UPI payment link: [Link]"*
+      *"Tap the link to complete payment in Google Pay, PhonePe, Paytm, or BHIM. Once paid, your order will be on its way!"*
   - **Cash**: With user approval, call \`place_food_order\` (\`paymentMethod: "Cash"\`).
 - NEVER call \`place_food_order\` without explicit, final user confirmation of the payment method and order!
 `.trim();
