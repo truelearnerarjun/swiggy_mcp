@@ -49,6 +49,10 @@ Instead of browsing endless menus and guessing calories, you define your fitness
   - `search_menu`: High-precision dish & ingredient search with `vegFilter` (1 for veg, 0 for non-veg).
   - `search_restaurants` & `get_restaurant_menu`: Restaurant discovery and full menu browsing.
   - `update_food_cart` & `get_food_cart`: Seamless cart building and price verification.
+- **💳 Intelligent Multi-Option Payment Flow:**
+  - **UPI Link / QR:** Generates a live Swiggy UPI payment link/QR for Google Pay, PhonePe, Paytm, and BHIM directly on WhatsApp.
+  - **Cash on Delivery (Cash):** Direct COD order placement with explicit user approval.
+  - **Card / NetBanking / Swiggy App:** If you prefer paying by card, the bot syncs the cart to your Swiggy account so you can open the official Swiggy app and checkout with cards, Cred, or Swiggy Money!
 - **🔒 Secure OAuth 2.1 + PKCE:**
   - Dynamic Client Registration with Swiggy—no credentials or passwords stored; tokens valid for 5 days.
 - **📱 Multi-Channel Support:**

@@ -85,12 +85,33 @@ Present 3 clear, appetizing options:
    - **Diet & Protein**: [Veg / Non-Veg] | ~[Estimated Grams]g protein (state realistic estimates, e.g. ~25-32g for chicken/soya/paneer)
    - **Why it fits**: Explain why it's great (e.g., roasted lean meat / cottage cheese, high bioavailability, fits ₹${profile.budgetPerMeal} budget).
 
-### Step 4: User Approval & Cart Confirmation
-- Ask the user which one they would like to order.
+### Step 4: Add to Cart & Order Summary
 - When the user selects a dish (e.g. "Add option 1", "I'll take the chicken roll", "yes"):
   - Call \`update_food_cart\` with the restaurantId and item ID.
-  - Call \`get_food_cart\` to confirm items and total.
-  - Present the cart summary and ask for explicit confirmation before checkout.
-- NEVER call \`place_food_order\` without explicit, final user confirmation.
+  - Call \`get_food_cart\` with \`addressId\` to confirm active items, delivery address, and total bill.
+  - Present the clear order summary: Items, Restaurant, Delivery Address, and Total Bill.
+
+### Step 5: Payment Method Selection & Checkout
+- After showing the cart summary, explicitly ask the user for their preferred payment method:
+  👉 *"How would you like to pay?"*
+  1. **UPI** (I will generate a Swiggy UPI payment link for GPay, PhonePe, Paytm, or QR code)
+  2. **Cash on Delivery (Cash)** (Pay the delivery partner upon arrival)
+  3. **Card / NetBanking / Swiggy Money** (Open the Swiggy mobile app to pay by card)
+
+- Handling the user's payment choice:
+  - **If User Chooses Card / NetBanking / Swiggy App**:
+    - Do NOT call \`place_food_order\`.
+    - Inform the user:
+      *"✅ Your cart is ready and saved to your Swiggy account! Please open the **Swiggy app** on your phone to complete your payment with Credit Card, Debit Card, or NetBanking."*
+  - **If User Chooses UPI**:
+    - Confirm the final total and address, then call \`place_food_order\` with \`addressId\` and \`paymentMethod: "UPI"\`.
+    - When the response has status "PENDING_PAYMENT" or returns a payment link / QR code:
+      Share the UPI payment link / details clearly and instruct:
+      *"Please tap the link to complete payment in your UPI app (Google Pay, PhonePe, Paytm). Once completed, Swiggy will confirm your order!"*
+    - (Do not claim the order is placed until payment succeeds).
+  - **If User Chooses Cash (Cash on Delivery)**:
+    - Confirm final approval from the user, then call \`place_food_order\` with \`addressId\` and \`paymentMethod: "Cash"\`.
+    - Present the confirmed Swiggy order details and delivery ETA.
+- NEVER call \`place_food_order\` without explicit, final user confirmation of the payment method and order!
 `.trim();
 }

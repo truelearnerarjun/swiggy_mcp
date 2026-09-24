@@ -209,17 +209,15 @@ await client.callTool({
 // Cart is tied to ONE restaurant. Changing restaurant flushes the cart.
 ```
 
-**Step 5 — Confirm and place (Phase 1: stop before this)**
+**Step 5 — Payment Method Selection & Order Placement**
 ```ts
-const cart = await client.callTool({ name: "get_food_cart" });
-// Hard cap: ₹1000 total for Builders Club orders
-// ALWAYS show cart summary to user and get explicit confirmation before placing
-const order = await client.callTool({
-  name: "place_food_order",
-  arguments: { paymentMethod: "COD" }, // COD only in v1.0
-});
-// place_food_order is NOT idempotent — do check-then-retry, not blind retry
+const cart = await client.callTool({ name: "get_food_cart", arguments: { addressId: home.id } });
+// Present cart summary (items, restaurant, address, total bill)
+// Prompt user for payment method: UPI, Cash, or Card (Swiggy App)
 ```
+- **If User Chooses Card / NetBanking:** Do not call `place_food_order`. Inform user: *"Your cart is synced to your Swiggy account! Please open the Swiggy mobile app to complete payment via card."*
+- **If User Chooses UPI:** Call `place_food_order` with `paymentMethod: "UPI"`. Swiggy returns `status: "PENDING_PAYMENT"` with a UPI intent link / QR code for GPay, PhonePe, Paytm. User completes payment in their UPI app.
+- **If User Chooses Cash (COD):** With explicit user confirmation, call `place_food_order` with `paymentMethod: "Cash"`.
 
 ### Phase 1 milestone order:
 
