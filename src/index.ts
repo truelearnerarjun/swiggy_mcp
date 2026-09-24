@@ -22,7 +22,7 @@ async function main() {
   } catch (err: any) {
     console.error("❌  Initialization failed:", err?.message ?? err);
     if (String(err).includes("401")) {
-      console.error("  Swiggy token expired. Delete token-store.json and re-run.\n");
+      console.error("  Swiggy token expired. Reauthorize and set a fresh SWIGGY_ACCESS_TOKEN.\n");
     }
     process.exit(1);
   }
@@ -74,7 +74,7 @@ async function main() {
     } catch (err: any) {
       if (String(err).includes("401")) {
         console.error(
-          "\n❌  Swiggy token expired. Delete token-store.json and re-run.\n"
+          "\n❌  Swiggy token expired. Reauthorize and set a fresh SWIGGY_ACCESS_TOKEN.\n"
         );
       } else {
         console.error("\n❌  Error:", err?.message ?? err);

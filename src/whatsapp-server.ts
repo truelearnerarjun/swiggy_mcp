@@ -10,6 +10,13 @@ import "dotenv/config";
 import express, { Request, Response } from "express";
 import twilio from "twilio";
 import { initAgentContext, runAgentTurn, AgentContext } from "./agent-core.js";
+import {
+  beginPhoneSwiggyAuthorization,
+  completePhoneSwiggyAuthorization,
+  getPhoneSwiggyAccessToken,
+  getEffectiveSwiggyToken,
+  forgetPhoneSwiggyAccessToken,
+} from "./swiggy-oauth.js";
 
 const PORT = parseInt(process.env.PORT ?? "3000", 10);
 const TWILIO_ACCOUNT_SID = process.env.TWILIO_ACCOUNT_SID;
@@ -18,6 +25,8 @@ const TWILIO_WHATSAPP_NUMBER =
   process.env.TWILIO_WHATSAPP_NUMBER ?? "whatsapp:+14155238886";
 
 const hasTwilioCredentials = Boolean(TWILIO_ACCOUNT_SID && TWILIO_AUTH_TOKEN);
+const OAUTH_PUBLIC_BASE_URL = (process.env.OAUTH_PUBLIC_BASE_URL ?? process.env.RENDER_EXTERNAL_URL ?? "").replace(/\/$/, "");
+const OAUTH_CALLBACK_PATH = "/oauth/swiggy/callback";
 const twilioClient = hasTwilioCredentials
   ? twilio(TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN)
   : null;
@@ -26,15 +35,16 @@ const twilioClient = hasTwilioCredentials
 interface UserSession {
   history: any[];
   lastActive: number;
+  ctx: AgentContext;
 }
 const sessions = new Map<string, UserSession>();
 
-// Clear sessions older than 24 hours to keep memory tidy
 const SESSION_TTL_MS = 24 * 60 * 60 * 1000;
 function cleanExpiredSessions() {
   const now = Date.now();
   for (const [phone, sess] of sessions.entries()) {
     if (now - sess.lastActive > SESSION_TTL_MS) {
+      try { sess.ctx?.mcpClient?.close(); } catch {}
       sessions.delete(phone);
     }
   }
@@ -45,14 +55,14 @@ async function startServer() {
   console.log("  📱 AI Nutrition Agent — Twilio WhatsApp Bot     ");
   console.log("═══════════════════════════════════════════════════\n");
 
-  let ctx: AgentContext;
+  let ctx: AgentContext | null = null;
   try {
     console.log("🔗 Connecting to Swiggy Food MCP & Gemini...");
-    ctx = await initAgentContext();
+    if (process.env.LEGACY_SINGLE_USER_MODE === "1") ctx = await initAgentContext();
     console.log("✓ Connected to Swiggy Food MCP.\n");
   } catch (err: any) {
     console.error("❌  Initialization failed:", err?.message ?? err);
-    process.exit(1);
+    console.warn("Starting without a shared Swiggy session; WhatsApp users authorize individually.");
   }
 
   const app = express();
@@ -67,6 +77,22 @@ async function startServer() {
       twilioConfigured: hasTwilioCredentials,
       activeSessions: sessions.size,
     });
+  });
+
+  app.get(OAUTH_CALLBACK_PATH, async (req: Request, res: Response) => {
+    try {
+      const { phoneNumber } = await completePhoneSwiggyAuthorization({
+        code: typeof req.query.code === "string" ? req.query.code : undefined,
+        state: typeof req.query.state === "string" ? req.query.state : undefined,
+        error: typeof req.query.error === "string" ? req.query.error : undefined,
+      });
+      sessions.delete(phoneNumber);
+      res.type("html").send("<h2>Swiggy connected</h2><p>Return to WhatsApp to continue.</p>");
+      await sendReply(phoneNumber, "Your Swiggy account is connected. Tell me what you would like to eat.");
+    } catch (err: any) {
+      res.status(400).type("html").send("<h2>Could not connect Swiggy</h2><p>Return to WhatsApp and request a new connect link.</p>");
+      console.warn("Swiggy OAuth callback failed:", err?.message ?? err);
+    }
   });
 
   // Twilio Webhook
@@ -88,6 +114,8 @@ async function startServer() {
 
     // Reset session command
     if (userMessage.toLowerCase() === "/reset" || userMessage.toLowerCase() === "reset") {
+      const existing = sessions.get(sender);
+      try { existing?.ctx?.mcpClient?.close(); } catch {}
       sessions.delete(sender);
       const resetMsg = "🔄 Your conversation history has been reset! What would you like to eat today?";
       console.log(`📤 Sending reset message to [${sender}]`);
@@ -95,10 +123,32 @@ async function startServer() {
       return;
     }
 
-    // Get or initialize session history
+    const accessToken = await getEffectiveSwiggyToken(sender);
+    if (!accessToken) {
+      if (!OAUTH_PUBLIC_BASE_URL) {
+        await sendReply(sender, "Swiggy connection is not configured yet. Please contact the bot owner.");
+        return;
+      }
+      try {
+        const connectUrl = await beginPhoneSwiggyAuthorization(sender, `${OAUTH_PUBLIC_BASE_URL}${OAUTH_CALLBACK_PATH}`);
+        await sendReply(sender, `Welcome to Swiggy AI. Connect your own Swiggy account to access your addresses and cart:\n${connectUrl}\n\nAfter you finish, return here and tell me what you would like to eat.`);
+      } catch (err: any) {
+        console.error("Could not start Swiggy OAuth:", err?.message ?? err);
+        await sendReply(sender, "I could not start Swiggy connection. Please try again shortly.");
+      }
+      return;
+    }
+
+    // Create one MCP connection per authorized WhatsApp user.
     let session = sessions.get(sender);
     if (!session) {
-      session = { history: [], lastActive: Date.now() };
+      try {
+        session = { history: [], lastActive: Date.now(), ctx: await initAgentContext(accessToken) };
+      } catch (err: any) {
+        console.error("Could not initialize Swiggy session:", err?.message ?? err);
+        await sendReply(sender, "I could not connect to your Swiggy account. Please reconnect and try again.");
+        return;
+      }
       sessions.set(sender, session);
     }
     session.lastActive = Date.now();
@@ -107,7 +157,7 @@ async function startServer() {
     try {
       console.log(`🤖 Processing request for [${sender}]...`);
       const reply = await runAgentTurn(
-        ctx,
+        session.ctx,
         session.history,
         userMessage,
         (tools) => {
@@ -119,6 +169,12 @@ async function startServer() {
       await sendReply(sender, reply);
     } catch (err: any) {
       console.error(`❌  Error handling message for [${sender}]:`, err?.message ?? err);
+      if (String(err?.message ?? err).includes("401")) {
+        const existing = sessions.get(sender);
+        try { existing?.ctx?.mcpClient?.close(); } catch {}
+        sessions.delete(sender);
+        forgetPhoneSwiggyAccessToken(sender);
+      }
       const fallbackMsg = "⚠️ Sorry, I encountered an issue checking Swiggy meals. Please try again in a moment or send /reset to start fresh.";
       await sendReply(sender, fallbackMsg);
     }

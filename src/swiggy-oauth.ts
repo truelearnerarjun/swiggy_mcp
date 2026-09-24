@@ -1,38 +1,17 @@
-/**
- * Swiggy OAuth 2.1 + PKCE provider.
- *
- * Implements the authorization_code flow with PKCE (S256) as documented at:
- * https://mcp.swiggy.com/builders/docs/start/authenticate.md
- *
- * OAuth server metadata verified live from:
- * https://mcp.swiggy.com/.well-known/oauth-authorization-server
- *
- * Key v1.0 constraints:
- * - No refresh tokens (re-run full flow on 401)
- * - Access token lifetime: 5 days (432000 seconds)
- * - Dynamic Client Registration via POST /auth/register
- * - Code challenge method: S256 only
- */
-
+/** Swiggy OAuth 2.1 + PKCE helpers for CLI and delegated WhatsApp auth. */
 import crypto from "crypto";
-import fs from "fs/promises";
-import http from "http";
-import path from "path";
-import { fileURLToPath } from "url";
-import express from "express";
-import open from "open";
 
-// ─── Types ────────────────────────────────────────────────────────────────────
+const SWIGGY_ISSUER = "https://mcp.swiggy.com/auth";
+const AUTHORIZE_URL = `${SWIGGY_ISSUER}/authorize`;
+const TOKEN_URL = `${SWIGGY_ISSUER}/token`;
+const REGISTER_URL = `${SWIGGY_ISSUER}/register`;
+const SCOPE = "mcp:tools mcp:resources mcp:prompts";
+const AUTH_REQUEST_TTL_MS = 10 * 60 * 1000;
 
 interface TokenStore {
   access_token: string;
-  expires_at: number; // Unix ms
+  expires_at: number;
   scope: string;
-}
-
-interface DCRResponse {
-  client_id: string;
-  client_secret?: string;
 }
 
 interface TokenResponse {
@@ -42,21 +21,16 @@ interface TokenResponse {
   scope: string;
 }
 
-// ─── Config ───────────────────────────────────────────────────────────────────
+interface PendingAuthorization {
+  phoneNumber: string;
+  codeVerifier: string;
+  clientId: string;
+  redirectUri: string;
+  expiresAt: number;
+}
 
-const SWIGGY_ISSUER = "https://mcp.swiggy.com/auth";
-const AUTHORIZE_URL = `${SWIGGY_ISSUER}/authorize`;
-const TOKEN_URL = `${SWIGGY_ISSUER}/token`;
-const REGISTER_URL = `${SWIGGY_ISSUER}/register`;
-
-const REDIRECT_PORT = parseInt(process.env.OAUTH_REDIRECT_PORT ?? "3000", 10);
-const REDIRECT_URI = `http://localhost:${REDIRECT_PORT}/callback`;
-const SCOPE = "mcp:tools mcp:resources mcp:prompts";
-
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const TOKEN_STORE_PATH = path.resolve(__dirname, "..", "token-store.json");
-
-// ─── PKCE helpers ─────────────────────────────────────────────────────────────
+const tokensByPhone = new Map<string, TokenStore>();
+const pendingAuthorizations = new Map<string, PendingAuthorization>();
 
 function generateCodeVerifier(): string {
   return crypto.randomBytes(32).toString("base64url");
@@ -67,240 +41,189 @@ function generateCodeChallenge(verifier: string): string {
 }
 
 function generateState(): string {
-  return crypto.randomBytes(16).toString("base64url");
+  return crypto.randomBytes(32).toString("base64url");
 }
 
-// ─── Token persistence ────────────────────────────────────────────────────────
-
-async function loadStoredToken(): Promise<TokenStore | null> {
-  try {
-    const raw = await fs.readFile(TOKEN_STORE_PATH, "utf-8");
-    const store: TokenStore = JSON.parse(raw);
-    // Require at least 60 seconds of remaining validity
-    if (store.access_token && store.expires_at > Date.now() + 60_000) {
-      return store;
-    }
-    return null;
-  } catch {
-    return null;
-  }
-}
-
-async function saveToken(token: TokenResponse): Promise<void> {
-  const store: TokenStore = {
-    access_token: token.access_token,
-    expires_at: Date.now() + token.expires_in * 1000,
-    scope: token.scope,
-  };
-  await fs.writeFile(TOKEN_STORE_PATH, JSON.stringify(store, null, 2), "utf-8");
-}
-
-// ─── Dynamic Client Registration ──────────────────────────────────────────────
-
-async function registerClient(): Promise<string> {
-  const res = await fetch(REGISTER_URL, {
+async function registerClient(redirectUri: string): Promise<string> {
+  const response = await fetch(REGISTER_URL, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
-      client_name: "Swigg MCP Nutrition Agent",
-      redirect_uris: [REDIRECT_URI],
+      client_name: "Swiggy MCP Nutrition Agent",
+      redirect_uris: [redirectUri],
       grant_types: ["authorization_code"],
       response_types: ["code"],
-      token_endpoint_auth_method: "none", // public client — no secret
+      token_endpoint_auth_method: "none",
     }),
   });
 
-  if (!res.ok) {
-    const err = await res.text();
-    throw new Error(`DCR failed (${res.status}): ${err}`);
+  if (!response.ok) {
+    throw new Error(`Swiggy client registration failed (${response.status}).`);
   }
-
-  const dcr = (await res.json()) as DCRResponse;
-  return dcr.client_id;
+  const data = (await response.json()) as { client_id?: string };
+  if (!data.client_id) throw new Error("Swiggy registration did not return a client ID.");
+  return data.client_id;
 }
-
-// ─── Local callback server ────────────────────────────────────────────────────
-
-function waitForCallback(
-  expectedState: string
-): Promise<{ code: string; state: string }> {
-  return new Promise((resolve, reject) => {
-    const app = express();
-    const server = http.createServer(app);
-
-    // Timeout after 5 minutes
-    const timeout = setTimeout(() => {
-      server.close();
-      reject(new Error("OAuth callback timed out after 5 minutes."));
-    }, 5 * 60 * 1000);
-
-    app.get("/callback", (req, res) => {
-      const { code, state, error } = req.query as Record<string, string>;
-
-      if (error) {
-        res.send(
-          "<html><body><h2>Authorization failed.</h2><p>" +
-            error +
-            "</p><p>You may close this tab.</p></body></html>"
-        );
-        clearTimeout(timeout);
-        server.close();
-        reject(new Error(`OAuth error: ${error}`));
-        return;
-      }
-
-      if (state !== expectedState) {
-        res.send(
-          "<html><body><h2>State mismatch — possible CSRF.</h2><p>You may close this tab.</p></body></html>"
-        );
-        clearTimeout(timeout);
-        server.close();
-        reject(new Error("OAuth state mismatch — possible CSRF attack."));
-        return;
-      }
-
-      if (!code) {
-        res.send(
-          "<html><body><h2>No authorization code received.</h2><p>You may close this tab.</p></body></html>"
-        );
-        clearTimeout(timeout);
-        server.close();
-        reject(new Error("No authorization code in callback."));
-        return;
-      }
-
-      res.send(
-        "<html><body>" +
-          "<h2 style='font-family:sans-serif;color:#FF5200'>✓ Connected to Swiggy!</h2>" +
-          "<p style='font-family:sans-serif'>Authorization successful. You may close this tab and return to your terminal.</p>" +
-          "</body></html>"
-      );
-
-      clearTimeout(timeout);
-      server.close();
-      resolve({ code, state });
-    });
-
-    server.listen(REDIRECT_PORT, () => {
-      // Server is ready — browser will be opened by the caller
-    });
-
-    server.on("error", (err) => {
-      clearTimeout(timeout);
-      reject(err);
-    });
-  });
-}
-
-// ─── Token exchange ───────────────────────────────────────────────────────────
 
 async function exchangeCodeForToken(
   code: string,
   codeVerifier: string,
-  clientId: string
+  clientId: string,
+  redirectUri: string
 ): Promise<TokenResponse> {
-  const res = await fetch(TOKEN_URL, {
+  const response = await fetch(TOKEN_URL, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
       grant_type: "authorization_code",
       code,
       code_verifier: codeVerifier,
-      redirect_uri: REDIRECT_URI,
       client_id: clientId,
+      redirect_uri: redirectUri,
     }),
   });
-
-  if (!res.ok) {
-    const err = await res.text();
-    throw new Error(`Token exchange failed (${res.status}): ${err}`);
+  if (!response.ok) {
+    throw new Error(`Swiggy token exchange failed (${response.status}).`);
   }
-
-  return (await res.json()) as TokenResponse;
+  return (await response.json()) as TokenResponse;
 }
 
-// ─── Main public API ──────────────────────────────────────────────────────────
+import fs from "fs/promises";
+import path from "path";
+import { fileURLToPath } from "url";
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const TOKEN_STORE_PATH = path.resolve(__dirname, "..", "token-store.json");
+
+export async function loadStoredToken(): Promise<TokenStore | null> {
+  try {
+    const raw = await fs.readFile(TOKEN_STORE_PATH, "utf-8");
+    const parsed = JSON.parse(raw) as TokenStore;
+    if (validToken(parsed)) return parsed;
+  } catch {
+    // not found or invalid
+  }
+  return null;
+}
+
+export async function saveToken(tokenResponse: TokenResponse): Promise<void> {
+  const store: TokenStore = {
+    access_token: tokenResponse.access_token,
+    expires_at: Date.now() + tokenResponse.expires_in * 1000,
+    scope: tokenResponse.scope,
+  };
+  await fs.writeFile(TOKEN_STORE_PATH, JSON.stringify(store, null, 2), "utf-8");
+}
+
+function validToken(token: TokenStore | undefined): token is TokenStore {
+  return Boolean(token?.access_token && token.expires_at > Date.now() + 60_000);
+}
+
+/** Returns a non-expired, in-memory token for one WhatsApp sender. */
+export function getPhoneSwiggyAccessToken(phoneNumber: string): string | null {
+  const token = tokensByPhone.get(phoneNumber);
+  if (validToken(token)) return token.access_token;
+  tokensByPhone.delete(phoneNumber);
+  return null;
+}
 
 /**
- * Returns a valid Swiggy access token.
- *
- * Strategy:
- * 1. Try to reuse a stored token (if still valid).
- * 2. If not, run the full OAuth 2.1 + PKCE flow (browser + phone + OTP).
+ * Returns a valid token for a phone number or falls back to system token:
+ * 1. If user has a per-phone token in tokensByPhone, use it.
+ * 2. Otherwise fall back to process.env.SWIGGY_ACCESS_TOKEN.
+ * 3. Otherwise fall back to token-store.json.
  */
-export async function getSwiggyAccessToken(): Promise<string> {
-  // 0. Use environment variable if provided (e.g. for cloud deployments on Render/Railway)
-  if (process.env.SWIGGY_ACCESS_TOKEN && process.env.SWIGGY_ACCESS_TOKEN.trim().length > 0) {
-    return process.env.SWIGGY_ACCESS_TOKEN.trim();
+export async function getEffectiveSwiggyToken(phoneNumber?: string): Promise<string | null> {
+  if (phoneNumber) {
+    const phoneToken = tokensByPhone.get(phoneNumber);
+    if (validToken(phoneToken)) return phoneToken.access_token;
   }
+  const envToken = process.env.SWIGGY_ACCESS_TOKEN?.trim();
+  if (envToken) return envToken;
 
-  // 1. Try stored token
   const stored = await loadStoredToken();
-  if (stored) {
-    const remainingMs = stored.expires_at - Date.now();
-    const remainingDays = Math.round(remainingMs / (1000 * 60 * 60 * 24));
-    console.log(
-      `✓ Using stored Swiggy token (expires in ~${remainingDays} day(s)).`
-    );
-    return stored.access_token;
-  }
+  if (stored) return stored.access_token;
 
-  // 2. Run full OAuth flow
-  console.log("\n🔑 No valid Swiggy token found. Starting OAuth flow...");
+  return null;
+}
+
+/**
+ * Creates a single-use authorization URL for one WhatsApp sender.
+ * Tokens deliberately remain in memory; never persist a user's Swiggy token as plaintext.
+ */
+export async function beginPhoneSwiggyAuthorization(
+  phoneNumber: string,
+  redirectUri: string
+): Promise<string> {
+  const callback = new URL(redirectUri);
+  if (callback.protocol !== "https:" && callback.hostname !== "localhost") {
+    throw new Error("OAUTH_PUBLIC_BASE_URL must use HTTPS outside local development.");
+  }
 
   const codeVerifier = generateCodeVerifier();
-  const codeChallenge = generateCodeChallenge(codeVerifier);
   const state = generateState();
+  const clientId = await registerClient(redirectUri);
+  pendingAuthorizations.set(state, {
+    phoneNumber,
+    codeVerifier,
+    clientId,
+    redirectUri,
+    expiresAt: Date.now() + AUTH_REQUEST_TTL_MS,
+  });
 
-  // Dynamic Client Registration
-  console.log("   Registering OAuth client...");
-  const clientId = await registerClient();
-  console.log(`   Client registered: ${clientId.slice(0, 12)}...`);
-
-  // Build authorization URL
   const authUrl = new URL(AUTHORIZE_URL);
   authUrl.searchParams.set("response_type", "code");
   authUrl.searchParams.set("client_id", clientId);
-  authUrl.searchParams.set("redirect_uri", REDIRECT_URI);
-  authUrl.searchParams.set("code_challenge", codeChallenge);
+  authUrl.searchParams.set("redirect_uri", redirectUri);
+  authUrl.searchParams.set("code_challenge", generateCodeChallenge(codeVerifier));
   authUrl.searchParams.set("code_challenge_method", "S256");
   authUrl.searchParams.set("state", state);
   authUrl.searchParams.set("scope", SCOPE);
-
-  // Start callback listener first, then open browser
-  const callbackPromise = waitForCallback(state);
-
-  console.log("\n   Opening Swiggy authorization in your browser...");
-  console.log(`   URL: ${authUrl.toString()}\n`);
-  await open(authUrl.toString());
-
-  console.log(
-    "   Waiting for you to complete phone + OTP login in the browser..."
-  );
-  const { code } = await callbackPromise;
-  console.log("   ✓ Authorization code received.");
-
-  // Exchange code for token
-  console.log("   Exchanging code for access token...");
-  const tokenResponse = await exchangeCodeForToken(code, codeVerifier, clientId);
-
-  // Persist token
-  await saveToken(tokenResponse);
-  const expiryDays = Math.round(tokenResponse.expires_in / 86400);
-  console.log(
-    `✓ Swiggy token obtained. Valid for ${expiryDays} days.\n`
-  );
-
-  return tokenResponse.access_token;
+  return authUrl.toString();
 }
 
-/**
- * Returns request headers needed for authenticated Swiggy MCP calls.
- * Use this when constructing MCPServerStreamableHttp with requestInit.
- */
-export async function getSwiggyAuthHeaders(): Promise<Record<string, string>> {
-  const token = await getSwiggyAccessToken();
-  return {
-    Authorization: `Bearer ${token}`,
-  };
+/** Completes a callback after validating its one-time CSRF state. */
+export async function completePhoneSwiggyAuthorization(input: {
+  code?: string;
+  state?: string;
+  error?: string;
+}): Promise<{ phoneNumber: string }> {
+  if (input.error) throw new Error(`Swiggy authorization was declined: ${input.error}`);
+  if (!input.code || !input.state) throw new Error("The Swiggy callback is missing its authorization details.");
+
+  const pending = pendingAuthorizations.get(input.state);
+  pendingAuthorizations.delete(input.state);
+  if (!pending || pending.expiresAt <= Date.now()) {
+    throw new Error("This Swiggy connect link has expired. Return to WhatsApp and request a new one.");
+  }
+
+  const token = await exchangeCodeForToken(
+    input.code,
+    pending.codeVerifier,
+    pending.clientId,
+    pending.redirectUri
+  );
+  tokensByPhone.set(pending.phoneNumber, {
+    access_token: token.access_token,
+    expires_at: Date.now() + token.expires_in * 1000,
+    scope: token.scope,
+  });
+  await saveToken(token).catch(() => {});
+  return { phoneNumber: pending.phoneNumber };
+}
+
+export function forgetPhoneSwiggyAccessToken(phoneNumber: string): void {
+  tokensByPhone.delete(phoneNumber);
+}
+
+/** Returns the effective token or throws if none configured. */
+export async function getSwiggyAccessToken(): Promise<string> {
+  const token = await getEffectiveSwiggyToken();
+  if (token) return token;
+  throw new Error("No Swiggy token found. Set SWIGGY_ACCESS_TOKEN or run OAuth.");
+}
+
+export async function getSwiggyAuthHeaders(accessToken?: string): Promise<Record<string, string>> {
+  const token = accessToken ?? (await getSwiggyAccessToken());
+  return { Authorization: `Bearer ${token}` };
 }

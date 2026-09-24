@@ -139,8 +139,8 @@ export const userProfile = {
 ```bash
 npm start
 ```
-1. On first launch, a browser window opens for one-time Swiggy OAuth login via phone + OTP.
-2. The access token is saved locally to `token-store.json` (gitignored, valid for 5 days).
+1. Set a valid `SWIGGY_ACCESS_TOKEN` in your local environment before starting the CLI.
+2. WhatsApp users connect their own Swiggy accounts through the official browser OAuth flow.
 3. Start chatting:
 ```text
 > You: What are my saved Swiggy addresses?
@@ -194,7 +194,7 @@ This repository includes full support for free, 24/7 deployment on [Render](http
 3. **Start Command:** `node dist/meta-whatsapp-server.js`
 4. **Environment Variables on Render:**
    - `GEMINI_API_KEY`: Your Gemini API key.
-   - `SWIGGY_ACCESS_TOKEN`: The 5-day Swiggy OAuth token (from `token-store.json`).
+    - `OAUTH_PUBLIC_BASE_URL`: Your Render HTTPS URL, for example `https://your-service.onrender.com`.
    - `META_WHATSAPP_TOKEN`: Your Meta Cloud API Access Token.
    - `META_PHONE_NUMBER_ID`: Your Meta WhatsApp Phone Number ID.
    - `META_VERIFY_TOKEN`: `swiggy_agent_secret`

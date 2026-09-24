@@ -3,6 +3,7 @@
 
 # OAuth token store (contains live access tokens)
 token-store.json
+tokens/
 
 # Node modules
 node_modules/
