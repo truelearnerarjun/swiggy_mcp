@@ -15,6 +15,7 @@ import {
   getPhoneSwiggyAccessToken,
   getEffectiveSwiggyToken,
   forgetPhoneSwiggyAccessToken,
+  storePhoneSwiggyToken,
 } from "./swiggy-oauth.js";
 
 const PORT = parseInt(process.env.PORT ?? "3000", 10);
@@ -213,6 +214,31 @@ async function checkMetaTokenStatus(): Promise<{ valid: boolean; message: string
       res.status(400).type("html").send(`<h2>Could not connect Swiggy</h2><p>${err?.message ?? "Authorization failed."}</p><p>Return to WhatsApp and request a new connect link.</p>`);
       console.warn("Swiggy OAuth callback failed:", err?.message ?? err);
     }
+  });
+
+  // Secure User Token Sync Endpoint
+  app.post("/api/sync-user-token", express.json(), async (req: Request, res: Response) => {
+    const adminKey = req.headers["x-admin-key"];
+    const expectedKey = process.env.ADMIN_SYNC_KEY ?? process.env.META_VERIFY_TOKEN ?? "swiggy_agent_secret";
+    if (adminKey !== expectedKey) {
+      res.status(401).json({ error: "Unauthorized: Invalid x-admin-key" });
+      return;
+    }
+    const { phoneNumber, accessToken, expiresIn, scope } = req.body;
+    if (!phoneNumber || !accessToken) {
+      res.status(400).json({ error: "Missing phoneNumber or accessToken" });
+      return;
+    }
+    await storePhoneSwiggyToken(phoneNumber, accessToken, expiresIn ?? 432000, scope ?? "mcp:tools");
+    const existing = sessions.get(phoneNumber);
+    try { existing?.ctx?.mcpClient?.close(); } catch {}
+    sessions.delete(phoneNumber);
+    console.log(`✓ Synced personal Swiggy token for [${phoneNumber}]`);
+    res.json({ success: true, message: `Token synced for ${phoneNumber}` });
+    await sendWhatsAppMessage(
+      phoneNumber,
+      "🎉 *Your Swiggy account is successfully connected!*\n\nWhere should we deliver, and what are you craving today? (e.g. Biryani, Rolls, Pizza, or a healthy High-Protein meal?)"
+    );
   });
 
   // Meta Webhook Verification (GET /webhook)

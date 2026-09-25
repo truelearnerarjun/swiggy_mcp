@@ -10,6 +10,7 @@
     "whatsapp:twilio": "tsx src/whatsapp-server.ts",
     "whatsapp": "tsx src/meta-whatsapp-server.ts",
     "dev": "tsx --watch src/index.ts",
+    "auth:user": "tsx src/auth-user.ts",
     "build": "tsc",
     "typecheck": "tsc --noEmit"
   },

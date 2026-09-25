@@ -180,21 +180,28 @@ export async function getPhoneSwiggyAccessToken(phoneNumber: string): Promise<st
 /**
  * Returns a valid token for a phone number:
  * 1. If sender has their own per-phone token, use it.
- * 2. If STRICT_INDIVIDUAL_AUTH=1 and sender is not admin, return null (requiring OAuth).
- * 3. Otherwise (default), gracefully fall back to the bot's SWIGGY_ACCESS_TOKEN or token-store.json
- *    so WhatsApp users are NOT blocked while Onrender domain whitelisting is pending with Swiggy!
+ * 2. If sender is the bot owner/admin, allow fallback to SWIGGY_ACCESS_TOKEN or token-store.json.
+ * 3. STRICT PRIVACY GUARD: Non-admin users MUST NOT get the admin's token or see admin's saved addresses!
+ *    They will strictly be required to authenticate their own Swiggy account.
  */
 export async function getEffectiveSwiggyToken(phoneNumber?: string): Promise<string | null> {
   if (phoneNumber) {
     const phoneToken = await getPhoneSwiggyAccessToken(phoneNumber);
     if (phoneToken) return phoneToken;
 
-    if (process.env.STRICT_INDIVIDUAL_AUTH === "1" && !isBotAdmin(phoneNumber)) {
-      return null;
+    // Check if this sender is the configured bot owner
+    if (isBotAdmin(phoneNumber)) {
+      const envToken = process.env.SWIGGY_ACCESS_TOKEN?.trim();
+      if (envToken) return envToken;
+      const stored = await loadStoredToken();
+      if (stored) return stored.access_token;
     }
+
+    // STRICT PRIVACY: Non-admin users must authenticate their own account!
+    return null;
   }
 
-  // Fallback to configured bot token
+  // Fallback for CLI runner or local scripts (no phoneNumber passed)
   const envToken = process.env.SWIGGY_ACCESS_TOKEN?.trim();
   if (envToken) return envToken;
   const stored = await loadStoredToken();
@@ -271,6 +278,24 @@ export async function completePhoneSwiggyAuthorization(input: {
   return { phoneNumber: pending.phoneNumber };
 }
 
+export async function storePhoneSwiggyToken(
+  phoneNumber: string,
+  accessToken: string,
+  expiresInSeconds: number,
+  scope: string = SCOPE
+): Promise<void> {
+  await ensurePhoneTokensLoaded();
+  const cleanPhone = normalizePhoneNumber(phoneNumber);
+  const storeItem: TokenStore = {
+    access_token: accessToken,
+    expires_at: Date.now() + expiresInSeconds * 1000,
+    scope,
+  };
+  tokensByPhone.set(cleanPhone, storeItem);
+  tokensByPhone.set(phoneNumber, storeItem);
+  await persistPhoneTokens();
+}
+
 export async function forgetPhoneSwiggyAccessToken(phoneNumber: string): Promise<void> {
   const cleanPhone = normalizePhoneNumber(phoneNumber);
   tokensByPhone.delete(cleanPhone);
@@ -289,3 +314,13 @@ export async function getSwiggyAuthHeaders(accessToken?: string): Promise<Record
   const token = accessToken ?? (await getSwiggyAccessToken());
   return { Authorization: `Bearer ${token}` };
 }
+
+export {
+  generateCodeVerifier,
+  generateCodeChallenge,
+  generateState,
+  registerClient,
+  exchangeCodeForToken,
+  AUTHORIZE_URL,
+  SCOPE,
+};
