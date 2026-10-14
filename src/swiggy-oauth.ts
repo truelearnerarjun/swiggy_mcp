@@ -181,9 +181,27 @@ export async function revokeSwiggySession(accessToken: string): Promise<void> {
   }
 }
 
+/**
+ * Decodes a JWT payload and checks if the token has expired (or will expire within 60 seconds).
+ */
+export function isJwtExpired(token: string): boolean {
+  try {
+    const parts = token.split(".");
+    if (parts.length < 2) return false;
+    const payload = JSON.parse(Buffer.from(parts[1], "base64url").toString("utf-8"));
+    if (payload.exp && typeof payload.exp === "number") {
+      return Date.now() >= payload.exp * 1000 - 60_000;
+    }
+    return false;
+  } catch {
+    return false;
+  }
+}
+
 function isTokenExpiredOrExpiring(token: TokenStore | undefined): boolean {
   if (!token?.access_token) return true;
-  return token.expires_at <= Date.now() + 60_000;
+  if (token.expires_at <= Date.now() + 60_000) return true;
+  return isJwtExpired(token.access_token);
 }
 
 function isTokenFresh(token: TokenStore | undefined): boolean {
@@ -285,14 +303,20 @@ export async function getPhoneSwiggyAccessToken(phoneNumber: string): Promise<st
 export async function getEffectiveSwiggyToken(phoneNumber?: string): Promise<string | null> {
   if (phoneNumber) {
     const phoneToken = await getPhoneSwiggyAccessToken(phoneNumber);
-    if (phoneToken) return phoneToken;
+    if (phoneToken && !isJwtExpired(phoneToken)) return phoneToken;
 
     // Check if this sender is the configured bot owner
     if (isBotAdmin(phoneNumber)) {
       const envToken = process.env.SWIGGY_ACCESS_TOKEN?.trim();
-      if (envToken) return envToken;
+      if (envToken) {
+        if (!isJwtExpired(envToken)) {
+          return envToken;
+        } else {
+          console.warn("⚠️ SWIGGY_ACCESS_TOKEN in env has expired (JWT exp). Ignoring.");
+        }
+      }
       const stored = await loadStoredToken();
-      if (stored) return stored.access_token;
+      if (stored && !isJwtExpired(stored.access_token)) return stored.access_token;
     }
 
     // STRICT PRIVACY: Non-admin users must authenticate their own account!
@@ -301,9 +325,15 @@ export async function getEffectiveSwiggyToken(phoneNumber?: string): Promise<str
 
   // Fallback for CLI runner or local scripts (no phoneNumber passed)
   const envToken = process.env.SWIGGY_ACCESS_TOKEN?.trim();
-  if (envToken) return envToken;
+  if (envToken) {
+    if (!isJwtExpired(envToken)) {
+      return envToken;
+    } else {
+      console.warn("⚠️ SWIGGY_ACCESS_TOKEN in env has expired (JWT exp). Ignoring.");
+    }
+  }
   const stored = await loadStoredToken();
-  if (stored) return stored.access_token;
+  if (stored && !isJwtExpired(stored.access_token)) return stored.access_token;
 
   return null;
 }

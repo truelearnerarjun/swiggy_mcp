@@ -299,9 +299,49 @@ async function checkMetaTokenStatus(): Promise<{ valid: boolean; message: string
       try { existing?.ctx?.mcpClient?.close(); } catch {}
       sessions.delete(sender);
       await forgetPhoneSwiggyAccessToken(sender);
-      const logoutMsg = "👋 *You have been logged out of your Swiggy account.*\n\nSend any message whenever you'd like to connect a new account or start fresh!";
+      delete process.env.SWIGGY_ACCESS_TOKEN;
+      const logoutMsg = "👋 *You have been logged out of your Swiggy account.*\n\nSend any message or /connect whenever you'd like to connect a new account or start fresh!";
       console.log(`📤 Sending logout message to [${sender}]`);
       await sendWhatsAppMessage(sender, logoutMsg);
+      return;
+    }
+
+    // Connect / Login / Reconnect command
+    if (
+      lowerMsg === "/connect" ||
+      lowerMsg === "connect" ||
+      lowerMsg === "/reconnect" ||
+      lowerMsg === "reconnect" ||
+      lowerMsg === "/login" ||
+      lowerMsg === "login"
+    ) {
+      const existing = sessions.get(sender);
+      try { existing?.ctx?.mcpClient?.close(); } catch {}
+      sessions.delete(sender);
+      await forgetPhoneSwiggyAccessToken(sender);
+      delete process.env.SWIGGY_ACCESS_TOKEN;
+
+      if (!OAUTH_PUBLIC_BASE_URL) {
+        await sendWhatsAppMessage(sender, "⚠️ Swiggy connection service is not configured yet. Please contact the bot owner.");
+        return;
+      }
+      try {
+        const connectUrl = await beginPhoneSwiggyAuthorization(sender, `${OAUTH_PUBLIC_BASE_URL}${OAUTH_CALLBACK_PATH}`);
+        const connectMsg =
+`🍔 *Connect Your Swiggy Account*
+
+Please tap the link below to securely connect your Swiggy account:
+
+👉 *Connect Swiggy:* ${connectUrl}
+
+🔒 _Secure phone + OTP login on Swiggy's official portal. Valid for 5 days._
+After connecting, return right here and tell me what you'd like to eat!`;
+        console.log(`📤 Sending connect link to [${sender}]`);
+        await sendWhatsAppMessage(sender, connectMsg);
+      } catch (err: any) {
+        console.error("Could not start Swiggy OAuth:", err?.message ?? err);
+        await sendWhatsAppMessage(sender, "⚠️ I could not generate your Swiggy connection link. Please try again shortly.");
+      }
       return;
     }
 
@@ -336,8 +376,32 @@ After connecting, return right here and tell me what you'd like to eat!`;
       try {
         session = { history: [], lastActive: Date.now(), ctx: await initAgentContext(accessToken) };
       } catch (err: any) {
-        console.error("Could not initialize Swiggy session:", err?.message ?? err);
-        await sendWhatsAppMessage(sender, "I could not connect to your Swiggy account. Please reconnect and try again.");
+        console.error(`Could not initialize Swiggy session for [${sender}]:`, err?.message ?? err);
+        const existing = sessions.get(sender);
+        try { existing?.ctx?.mcpClient?.close(); } catch {}
+        sessions.delete(sender);
+        await forgetPhoneSwiggyAccessToken(sender);
+        delete process.env.SWIGGY_ACCESS_TOKEN;
+
+        if (OAUTH_PUBLIC_BASE_URL) {
+          try {
+            const connectUrl = await beginPhoneSwiggyAuthorization(sender, `${OAUTH_PUBLIC_BASE_URL}${OAUTH_CALLBACK_PATH}`);
+            const reconnectMsg =
+`⚠️ *Your Swiggy session has expired.*
+
+Please tap below to reconnect your Swiggy account:
+
+👉 *Reconnect Swiggy:* ${connectUrl}
+
+🔒 _Secure phone + OTP login on Swiggy's official portal. Valid for 5 days._
+After connecting, return right here and tell me what you'd like to eat!`;
+            await sendWhatsAppMessage(sender, reconnectMsg);
+            return;
+          } catch (oauthErr) {
+            console.error("Failed to generate reconnect URL:", oauthErr);
+          }
+        }
+        await sendWhatsAppMessage(sender, "⚠️ Your Swiggy session has expired. Please send /connect to receive a new login link.");
         return;
       }
       sessions.set(sender, session);
@@ -360,11 +424,32 @@ After connecting, return right here and tell me what you'd like to eat!`;
       await sendWhatsAppMessage(sender, reply);
     } catch (err: any) {
       console.error(`❌ Error handling message for [${sender}]:`, err?.message ?? err);
-      if (String(err?.message ?? err).includes("401")) {
+      const errStr = String(err?.message ?? err);
+      if (errStr.includes("401") || errStr.includes("invalid_token") || errStr.includes("JWT has expired")) {
         const existing = sessions.get(sender);
         try { existing?.ctx?.mcpClient?.close(); } catch {}
         sessions.delete(sender);
-        forgetPhoneSwiggyAccessToken(sender);
+        await forgetPhoneSwiggyAccessToken(sender);
+        delete process.env.SWIGGY_ACCESS_TOKEN;
+
+        if (OAUTH_PUBLIC_BASE_URL) {
+          try {
+            const connectUrl = await beginPhoneSwiggyAuthorization(sender, `${OAUTH_PUBLIC_BASE_URL}${OAUTH_CALLBACK_PATH}`);
+            const reconnectMsg =
+`⚠️ *Your Swiggy session has expired.*
+
+Please tap below to reconnect your Swiggy account:
+
+👉 *Reconnect Swiggy:* ${connectUrl}
+
+🔒 _Secure phone + OTP login on Swiggy's official portal. Valid for 5 days._
+After connecting, return right here and tell me what you'd like to eat!`;
+            await sendWhatsAppMessage(sender, reconnectMsg);
+            return;
+          } catch (oauthErr) {
+            console.error("Failed to generate reconnect URL:", oauthErr);
+          }
+        }
       }
       const fallbackMsg = "⚠️ Sorry, I encountered an issue checking Swiggy meals. Please try again in a moment or send /reset to start fresh.";
       await sendWhatsAppMessage(sender, fallbackMsg);
