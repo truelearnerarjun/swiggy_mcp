@@ -115,7 +115,13 @@ async function main() {
     console.log(`   ✓ Token received! Valid for ${Math.round(tokenResponse.expires_in / 86400)} days.`);
 
     console.log("4. Saving token locally to tokens/phone-tokens.json...");
-    await storePhoneSwiggyToken(phoneNumber, tokenResponse.access_token, tokenResponse.expires_in, tokenResponse.scope);
+    await storePhoneSwiggyToken(
+      phoneNumber,
+      tokenResponse.access_token,
+      tokenResponse.expires_in,
+      tokenResponse.scope,
+      tokenResponse.refresh_token
+    );
     console.log("   ✓ Saved locally.");
 
     // Sync to live Render deployment
@@ -131,6 +137,7 @@ async function main() {
           body: JSON.stringify({
             phoneNumber,
             accessToken: tokenResponse.access_token,
+            refreshToken: tokenResponse.refresh_token,
             expiresIn: tokenResponse.expires_in,
             scope: tokenResponse.scope,
           }),

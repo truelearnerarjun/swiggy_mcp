@@ -10,12 +10,14 @@ const AUTH_REQUEST_TTL_MS = 10 * 60 * 1000;
 
 interface TokenStore {
   access_token: string;
+  refresh_token?: string;
   expires_at: number;
   scope: string;
 }
 
 interface TokenResponse {
   access_token: string;
+  refresh_token?: string;
   token_type: string;
   expires_in: number;
   scope: string;
@@ -51,7 +53,7 @@ async function registerClient(redirectUri: string): Promise<string> {
     body: JSON.stringify({
       client_name: "Swiggy MCP Nutrition Agent",
       redirect_uris: [redirectUri],
-      grant_types: ["authorization_code"],
+      grant_types: ["authorization_code", "refresh_token"],
       response_types: ["code"],
       token_endpoint_auth_method: "none",
     }),
@@ -106,7 +108,7 @@ async function ensurePhoneTokensLoaded() {
     const raw = await fs.readFile(PHONE_TOKENS_PATH, "utf-8");
     const parsed = JSON.parse(raw);
     for (const [phone, token] of Object.entries(parsed)) {
-      if (validToken(token as TokenStore)) {
+      if (hasUsableCredentials(token as TokenStore)) {
         tokensByPhone.set(phone, token as TokenStore);
       }
     }
@@ -120,7 +122,7 @@ async function persistPhoneTokens(): Promise<void> {
     await fs.mkdir(TOKENS_DIR, { recursive: true });
     const obj: Record<string, TokenStore> = {};
     for (const [phone, token] of tokensByPhone.entries()) {
-      if (validToken(token)) {
+      if (hasUsableCredentials(token)) {
         obj[phone] = token;
       }
     }
@@ -141,11 +143,85 @@ export function isBotAdmin(phoneNumber: string): boolean {
   return Boolean(adminClean && senderClean === adminClean);
 }
 
+const LOGOUT_URL = `${SWIGGY_ISSUER}/logout`;
+
+/**
+ * Exchanges a refresh token for a fresh access token and rotated refresh token.
+ */
+export async function refreshAccessToken(refreshToken: string): Promise<TokenResponse> {
+  const res = await fetch(TOKEN_URL, {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({
+      grant_type: "refresh_token",
+      refresh_token: refreshToken,
+    }),
+  });
+  if (!res.ok) {
+    const errText = await res.text().catch(() => "");
+    throw new Error(`Swiggy token refresh failed (${res.status}): ${errText}`);
+  }
+  return (await res.json()) as TokenResponse;
+}
+
+/**
+ * Revokes a session on Swiggy's remote OAuth server.
+ */
+export async function revokeSwiggySession(accessToken: string): Promise<void> {
+  try {
+    await fetch(LOGOUT_URL, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        "Content-Type": "application/json",
+      },
+    });
+  } catch (err) {
+    console.warn("Could not revoke Swiggy session remotely:", err);
+  }
+}
+
+function isTokenExpiredOrExpiring(token: TokenStore | undefined): boolean {
+  if (!token?.access_token) return true;
+  return token.expires_at <= Date.now() + 60_000;
+}
+
+function isTokenFresh(token: TokenStore | undefined): boolean {
+  if (!token?.access_token) return false;
+  return !isTokenExpiredOrExpiring(token);
+}
+
+function hasUsableCredentials(token: TokenStore | undefined): boolean {
+  if (!token?.access_token) return false;
+  return isTokenFresh(token) || Boolean(token.refresh_token);
+}
+
 export async function loadStoredToken(): Promise<TokenStore | null> {
   try {
     const raw = await fs.readFile(TOKEN_STORE_PATH, "utf-8");
     const parsed = JSON.parse(raw) as TokenStore;
-    if (validToken(parsed)) return parsed;
+    if (parsed.access_token) {
+      if (isTokenFresh(parsed)) return parsed;
+
+      // Proactively refresh with refresh_token if expired or expiring within 60s
+      if (parsed.refresh_token) {
+        try {
+          console.log("🔄 Proactively refreshing stored Swiggy access token via refresh_token...");
+          const refreshed = await refreshAccessToken(parsed.refresh_token);
+          const updatedStore: TokenStore = {
+            access_token: refreshed.access_token,
+            refresh_token: refreshed.refresh_token ?? parsed.refresh_token,
+            expires_at: Date.now() + refreshed.expires_in * 1000,
+            scope: refreshed.scope ?? parsed.scope,
+          };
+          await saveToken(refreshed);
+          console.log("✓ Stored Swiggy token refreshed successfully (5 days).");
+          return updatedStore;
+        } catch (err) {
+          console.warn("⚠️ Refresh token exchange failed for stored token:", err);
+        }
+      }
+    }
   } catch {
     // not found or invalid
   }
@@ -155,24 +231,46 @@ export async function loadStoredToken(): Promise<TokenStore | null> {
 export async function saveToken(tokenResponse: TokenResponse): Promise<void> {
   const store: TokenStore = {
     access_token: tokenResponse.access_token,
+    refresh_token: tokenResponse.refresh_token,
     expires_at: Date.now() + tokenResponse.expires_in * 1000,
     scope: tokenResponse.scope,
   };
   await fs.writeFile(TOKEN_STORE_PATH, JSON.stringify(store, null, 2), "utf-8");
 }
 
-function validToken(token: TokenStore | undefined): token is TokenStore {
-  return Boolean(token?.access_token && token.expires_at > Date.now() + 60_000);
-}
-
-/** Returns a non-expired token for one WhatsApp sender (from memory or file). */
+/** Returns a non-expired token for one WhatsApp sender (from memory or file, refreshing if needed). */
 export async function getPhoneSwiggyAccessToken(phoneNumber: string): Promise<string | null> {
   await ensurePhoneTokensLoaded();
   const cleanPhone = normalizePhoneNumber(phoneNumber);
   const token = tokensByPhone.get(cleanPhone) ?? tokensByPhone.get(phoneNumber);
-  if (validToken(token)) return token.access_token;
+  if (!token?.access_token) return null;
+
+  if (isTokenFresh(token)) return token.access_token;
+
+  // Proactively refresh if refresh_token is present
+  if (token.refresh_token) {
+    try {
+      console.log(`🔄 Refreshing Swiggy token for [${phoneNumber}] via refresh_token...`);
+      const refreshed = await refreshAccessToken(token.refresh_token);
+      const updatedStore: TokenStore = {
+        access_token: refreshed.access_token,
+        refresh_token: refreshed.refresh_token ?? token.refresh_token,
+        expires_at: Date.now() + refreshed.expires_in * 1000,
+        scope: refreshed.scope ?? token.scope,
+      };
+      tokensByPhone.set(cleanPhone, updatedStore);
+      tokensByPhone.set(phoneNumber, updatedStore);
+      await persistPhoneTokens();
+      console.log(`✓ Swiggy token refreshed for [${phoneNumber}] (5 days).`);
+      return refreshed.access_token;
+    } catch (err) {
+      console.warn(`⚠️ Token refresh failed for [${phoneNumber}]:`, err);
+    }
+  }
+
   tokensByPhone.delete(cleanPhone);
   tokensByPhone.delete(phoneNumber);
+  await persistPhoneTokens();
   return null;
 }
 
@@ -268,6 +366,7 @@ export async function completePhoneSwiggyAuthorization(input: {
   const cleanPhone = normalizePhoneNumber(pending.phoneNumber);
   const storeItem: TokenStore = {
     access_token: token.access_token,
+    refresh_token: token.refresh_token,
     expires_at: Date.now() + token.expires_in * 1000,
     scope: token.scope,
   };
@@ -282,12 +381,14 @@ export async function storePhoneSwiggyToken(
   phoneNumber: string,
   accessToken: string,
   expiresInSeconds: number,
-  scope: string = SCOPE
+  scope: string = SCOPE,
+  refreshToken?: string
 ): Promise<void> {
   await ensurePhoneTokensLoaded();
   const cleanPhone = normalizePhoneNumber(phoneNumber);
   const storeItem: TokenStore = {
     access_token: accessToken,
+    refresh_token: refreshToken,
     expires_at: Date.now() + expiresInSeconds * 1000,
     scope,
   };
@@ -298,6 +399,10 @@ export async function storePhoneSwiggyToken(
 
 export async function forgetPhoneSwiggyAccessToken(phoneNumber: string): Promise<void> {
   const cleanPhone = normalizePhoneNumber(phoneNumber);
+  const token = tokensByPhone.get(cleanPhone) ?? tokensByPhone.get(phoneNumber);
+  if (token?.access_token) {
+    await revokeSwiggySession(token.access_token).catch(() => {});
+  }
   tokensByPhone.delete(cleanPhone);
   tokensByPhone.delete(phoneNumber);
   await persistPhoneTokens();
@@ -324,3 +429,4 @@ export {
   AUTHORIZE_URL,
   SCOPE,
 };
+

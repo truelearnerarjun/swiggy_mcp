@@ -224,12 +224,12 @@ async function checkMetaTokenStatus(): Promise<{ valid: boolean; message: string
       res.status(401).json({ error: "Unauthorized: Invalid x-admin-key" });
       return;
     }
-    const { phoneNumber, accessToken, expiresIn, scope } = req.body;
+    const { phoneNumber, accessToken, expiresIn, scope, refreshToken } = req.body;
     if (!phoneNumber || !accessToken) {
       res.status(400).json({ error: "Missing phoneNumber or accessToken" });
       return;
     }
-    await storePhoneSwiggyToken(phoneNumber, accessToken, expiresIn ?? 432000, scope ?? "mcp:tools");
+    await storePhoneSwiggyToken(phoneNumber, accessToken, expiresIn ?? 432000, scope ?? "mcp:tools", refreshToken);
     const existing = sessions.get(phoneNumber);
     try { existing?.ctx?.mcpClient?.close(); } catch {}
     sessions.delete(phoneNumber);
